@@ -3,7 +3,6 @@
 #include "../utility/utility.h"
 #include "../parameters.h"
 
-#include <ceres/ceres.h>
 using namespace Eigen;
 
 class IntegrationBase

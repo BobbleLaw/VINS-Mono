@@ -30,7 +30,7 @@ queue<nav_msgs::Odometry::ConstPtr> pose_buf;
 queue<Eigen::Vector3d> odometry_buf;
 std::mutex m_buf;
 std::mutex m_process;
-int frame_index  = 0;
+int frame_index = 0;
 int sequence = 1;
 PoseGraph posegraph;
 int skip_first_cnt = 0;
@@ -79,26 +79,26 @@ void new_sequence()
     posegraph.posegraph_visualization->reset();
     posegraph.publish();
     m_buf.lock();
-    while(!image_buf.empty())
+    while (!image_buf.empty())
         image_buf.pop();
-    while(!point_buf.empty())
+    while (!point_buf.empty())
         point_buf.pop();
-    while(!pose_buf.empty())
+    while (!pose_buf.empty())
         pose_buf.pop();
-    while(!odometry_buf.empty())
+    while (!odometry_buf.empty())
         odometry_buf.pop();
     m_buf.unlock();
 }
 
 void image_callback(const sensor_msgs::ImageConstPtr &image_msg)
 {
-    //ROS_INFO("image_callback!");
-    if(!LOOP_CLOSURE)
+    // ROS_INFO("image_callback!");
+    if (!LOOP_CLOSURE)
         return;
     m_buf.lock();
     image_buf.push(image_msg);
     m_buf.unlock();
-    //printf(" image time %f \n", image_msg->header.stamp.toSec());
+    // printf(" image time %f \n", image_msg->header.stamp.toSec());
 
     // detect unstable camera stream
     if (last_image_time == -1)
@@ -113,8 +113,8 @@ void image_callback(const sensor_msgs::ImageConstPtr &image_msg)
 
 void point_callback(const sensor_msgs::PointCloudConstPtr &point_msg)
 {
-    //ROS_INFO("point_callback!");
-    if(!LOOP_CLOSURE)
+    // ROS_INFO("point_callback!");
+    if (!LOOP_CLOSURE)
         return;
     m_buf.lock();
     point_buf.push(point_msg);
@@ -122,7 +122,7 @@ void point_callback(const sensor_msgs::PointCloudConstPtr &point_msg)
     /*
     for (unsigned int i = 0; i < point_msg->points.size(); i++)
     {
-        printf("%d, 3D point: %f, %f, %f 2D point %f, %f \n",i , point_msg->points[i].x, 
+        printf("%d, 3D point: %f, %f, %f 2D point %f, %f \n",i , point_msg->points[i].x,
                                                      point_msg->points[i].y,
                                                      point_msg->points[i].z,
                                                      point_msg->channels[i].values[0],
@@ -133,8 +133,8 @@ void point_callback(const sensor_msgs::PointCloudConstPtr &point_msg)
 
 void pose_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
 {
-    //ROS_INFO("pose_callback!");
-    if(!LOOP_CLOSURE)
+    // ROS_INFO("pose_callback!");
+    if (!LOOP_CLOSURE)
         return;
     m_buf.lock();
     pose_buf.push(pose_msg);
@@ -162,7 +162,7 @@ void imu_forward_callback(const nav_msgs::Odometry::ConstPtr &forward_msg)
         vio_q.z() = forward_msg->pose.pose.orientation.z;
 
         vio_t = posegraph.w_r_vio * vio_t + posegraph.w_t_vio;
-        vio_q = posegraph.w_r_vio *  vio_q;
+        vio_q = posegraph.w_r_vio * vio_q;
 
         vio_t = posegraph.r_drift * vio_t + posegraph.t_drift;
         vio_q = posegraph.r_drift * vio_q;
@@ -170,7 +170,7 @@ void imu_forward_callback(const nav_msgs::Odometry::ConstPtr &forward_msg)
         Vector3d vio_t_cam;
         Quaterniond vio_q_cam;
         vio_t_cam = vio_t + vio_q * tic;
-        vio_q_cam = vio_q * qic;        
+        vio_q_cam = vio_q * qic;
 
         cameraposevisual.reset();
         cameraposevisual.add_pose(vio_t_cam, vio_q_cam);
@@ -189,18 +189,17 @@ void relo_relative_pose_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
     relative_q.z() = pose_msg->pose.pose.orientation.z;
     double relative_yaw = pose_msg->twist.twist.linear.x;
     int index = pose_msg->twist.twist.linear.y;
-    //printf("receive index %d \n", index );
-    Eigen::Matrix<double, 8, 1 > loop_info;
+    // printf("receive index %d \n", index );
+    Eigen::Matrix<double, 8, 1> loop_info;
     loop_info << relative_t.x(), relative_t.y(), relative_t.z(),
-                 relative_q.w(), relative_q.x(), relative_q.y(), relative_q.z(),
-                 relative_yaw;
+        relative_q.w(), relative_q.x(), relative_q.y(), relative_q.z(),
+        relative_yaw;
     posegraph.updateKeyFrameLoop(index, loop_info);
-
 }
 
 void vio_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
 {
-    //ROS_INFO("vio_callback!");
+    // ROS_INFO("vio_callback!");
     Vector3d vio_t(pose_msg->pose.pose.position.x, pose_msg->pose.pose.position.y, pose_msg->pose.pose.position.z);
     Quaterniond vio_q;
     vio_q.w() = pose_msg->pose.pose.orientation.w;
@@ -209,7 +208,7 @@ void vio_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
     vio_q.z() = pose_msg->pose.pose.orientation.z;
 
     vio_t = posegraph.w_r_vio * vio_t + posegraph.w_t_vio;
-    vio_q = posegraph.w_r_vio *  vio_q;
+    vio_q = posegraph.w_r_vio * vio_q;
 
     vio_t = posegraph.r_drift * vio_t + posegraph.t_drift;
     vio_q = posegraph.r_drift * vio_q;
@@ -217,7 +216,7 @@ void vio_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
     Vector3d vio_t_cam;
     Quaterniond vio_q_cam;
     vio_t_cam = vio_t + vio_q * tic;
-    vio_q_cam = vio_q * qic;        
+    vio_q_cam = vio_q * qic;
 
     if (!VISUALIZE_IMU_FORWARD)
     {
@@ -241,8 +240,8 @@ void vio_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
     key_odometrys.pose.orientation.w = 1.0;
     key_odometrys.lifetime = ros::Duration();
 
-    //static int key_odometrys_id = 0;
-    key_odometrys.id = 0; //key_odometrys_id++;
+    // static int key_odometrys_id = 0;
+    key_odometrys.id = 0; // key_odometrys_id++;
     key_odometrys.scale.x = 0.1;
     key_odometrys.scale.y = 0.1;
     key_odometrys.scale.z = 0.1;
@@ -287,7 +286,8 @@ void extrinsic_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
     qic = Quaterniond(pose_msg->pose.pose.orientation.w,
                       pose_msg->pose.pose.orientation.x,
                       pose_msg->pose.pose.orientation.y,
-                      pose_msg->pose.pose.orientation.z).toRotationMatrix();
+                      pose_msg->pose.pose.orientation.z)
+              .toRotationMatrix();
     m_process.unlock();
 }
 
@@ -297,13 +297,13 @@ void process()
         return;
     while (true)
     {
-        sensor_msgs::ImageConstPtr image_msg = NULL;
-        sensor_msgs::PointCloudConstPtr point_msg = NULL;
-        nav_msgs::Odometry::ConstPtr pose_msg = NULL;
+        sensor_msgs::ImageConstPtr image_msg{nullptr};
+        sensor_msgs::PointCloudConstPtr point_msg{nullptr};
+        nav_msgs::Odometry::ConstPtr pose_msg{nullptr};
 
         // find out the messages with same time stamp
         m_buf.lock();
-        if(!image_buf.empty() && !point_buf.empty() && !pose_buf.empty())
+        if (!image_buf.empty() && !point_buf.empty() && !pose_buf.empty())
         {
             if (image_buf.front()->header.stamp.toSec() > pose_buf.front()->header.stamp.toSec())
             {
@@ -315,8 +315,7 @@ void process()
                 point_buf.pop();
                 printf("throw point at beginning\n");
             }
-            else if (image_buf.back()->header.stamp.toSec() >= pose_buf.front()->header.stamp.toSec() 
-                && point_buf.back()->header.stamp.toSec() >= pose_buf.front()->header.stamp.toSec())
+            else if (image_buf.back()->header.stamp.toSec() >= pose_buf.front()->header.stamp.toSec() && point_buf.back()->header.stamp.toSec() >= pose_buf.front()->header.stamp.toSec())
             {
                 pose_msg = pose_buf.front();
                 pose_buf.pop();
@@ -335,12 +334,9 @@ void process()
         }
         m_buf.unlock();
 
-        if (pose_msg != NULL)
+        if (pose_msg)
         {
-            //printf(" pose time %f \n", pose_msg->header.stamp.toSec());
-            //printf(" point time %f \n", point_msg->header.stamp.toSec());
-            //printf(" image time %f \n", image_msg->header.stamp.toSec());
-            // skip fisrt few
+            //  skip fisrt few
             if (skip_first_cnt < SKIP_FIRST_CNT)
             {
                 skip_first_cnt++;
@@ -372,7 +368,7 @@ void process()
             }
             else
                 ptr = cv_bridge::toCvCopy(image_msg, sensor_msgs::image_encodings::MONO8);
-            
+
             cv::Mat image = ptr->image;
             // build keyframe
             Vector3d T = Vector3d(pose_msg->pose.pose.position.x,
@@ -381,11 +377,12 @@ void process()
             Matrix3d R = Quaterniond(pose_msg->pose.pose.orientation.w,
                                      pose_msg->pose.pose.orientation.x,
                                      pose_msg->pose.pose.orientation.y,
-                                     pose_msg->pose.pose.orientation.z).toRotationMatrix();
-            if((T - last_t).norm() > SKIP_DIS)
+                                     pose_msg->pose.pose.orientation.z)
+                             .toRotationMatrix();
+            if ((T - last_t).norm() > SKIP_DIS)
             {
-                vector<cv::Point3f> point_3d; 
-                vector<cv::Point2f> point_2d_uv; 
+                vector<cv::Point3f> point_3d;
+                vector<cv::Point2f> point_2d_uv;
                 vector<cv::Point2f> point_2d_normal;
                 vector<double> point_id;
 
@@ -408,11 +405,11 @@ void process()
                     point_2d_uv.push_back(p_2d_uv);
                     point_id.push_back(p_id);
 
-                    //printf("u %f, v %f \n", p_2d_uv.x, p_2d_uv.y);
+                    // printf("u %f, v %f \n", p_2d_uv.x, p_2d_uv.y);
                 }
 
-                KeyFrame* keyframe = new KeyFrame(pose_msg->header.stamp.toSec(), frame_index, T, R, image,
-                                   point_3d, point_2d_uv, point_2d_normal, point_id, sequence);   
+                KeyFrame *keyframe = new KeyFrame(pose_msg->header.stamp.toSec(), frame_index, T, R, image,
+                                                  point_3d, point_2d_uv, point_2d_normal, point_id, sequence);
                 m_process.lock();
                 start_flag = 1;
                 posegraph.addKeyFrame(keyframe, 1);
@@ -431,7 +428,7 @@ void command()
 {
     if (!LOOP_CLOSURE)
         return;
-    while(1)
+    while (1)
     {
         char c = getchar();
         if (c == 's')
@@ -465,7 +462,7 @@ int main(int argc, char **argv)
     std::string config_file;
     n.getParam("config_file", config_file);
     cv::FileStorage fsSettings(config_file, cv::FileStorage::READ);
-    if(!fsSettings.isOpened())
+    if (!fsSettings.isOpened())
     {
         std::cerr << "ERROR: Wrong path to settings" << std::endl;
     }
@@ -473,7 +470,6 @@ int main(int argc, char **argv)
     double camera_visual_size = fsSettings["visualize_camera_size"];
     cameraposevisual.setScale(camera_visual_size);
     cameraposevisual.setLineWidth(camera_visual_size / 10.0);
-
 
     LOOP_CLOSURE = fsSettings["loop_closure"];
     std::string IMAGE_TOPIC;
@@ -491,7 +487,7 @@ int main(int argc, char **argv)
         cout << "BRIEF_PATTERN_FILE" << BRIEF_PATTERN_FILE << endl;
         m_camera = camodocal::CameraFactory::instance()->generateCameraFromYamlFile(config_file.c_str());
 
-        fsSettings["image_topic"] >> IMAGE_TOPIC;        
+        fsSettings["image_topic"] >> IMAGE_TOPIC;
         fsSettings["pose_graph_save_path"] >> POSE_GRAPH_SAVE_PATH;
         fsSettings["output_path"] >> VINS_RESULT_PATH;
         fsSettings["save_image"] >> DEBUG_IMAGE;
@@ -545,7 +541,6 @@ int main(int argc, char **argv)
 
     measurement_process = std::thread(process);
     keyboard_command_process = std::thread(command);
-
 
     ros::spin();
 

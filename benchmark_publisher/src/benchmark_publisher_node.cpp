@@ -35,11 +35,11 @@ struct Data
     Data(FILE *f)
     {
         if (fscanf(f, " %lf,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f", &t,
-               &px, &py, &pz,
-               &qw, &qx, &qy, &qz,
-               &vx, &vy, &vz,
-               &wx, &wy, &wz,
-               &ax, &ay, &az) != EOF)
+                   &px, &py, &pz,
+                   &qw, &qx, &qy, &qz,
+                   &vx, &vy, &vz,
+                   &wx, &wy, &wz,
+                   &ax, &ay, &az) != EOF)
         {
             t /= 1e9;
         }
@@ -65,13 +65,12 @@ tf::Transform trans;
 
 void odom_callback(const nav_msgs::OdometryConstPtr &odom_msg)
 {
-    //ROS_INFO("odom callback!");
+    // ROS_INFO("odom callback!");
     if (odom_msg->header.stamp.toSec() > benchmark.back().t)
-      return;
-  
+        return;
+
     for (; idx < static_cast<int>(benchmark.size()) && benchmark[idx].t <= odom_msg->header.stamp.toSec(); idx++)
         ;
-
 
     if (init++ < SKIP)
     {
@@ -82,7 +81,8 @@ void odom_callback(const nav_msgs::OdometryConstPtr &odom_msg)
                   Quaterniond(benchmark[idx - 1].qw,
                               benchmark[idx - 1].qx,
                               benchmark[idx - 1].qy,
-                              benchmark[idx - 1].qz).inverse();
+                              benchmark[idx - 1].qz)
+                      .inverse();
         baseTgt = Vector3d{odom_msg->pose.pose.position.x,
                            odom_msg->pose.pose.position.y,
                            odom_msg->pose.pose.position.z} -
@@ -133,19 +133,24 @@ int main(int argc, char **argv)
     string csv_file = readParam<string>(n, "data_name");
     std::cout << "load ground truth " << csv_file << std::endl;
     FILE *f = fopen(csv_file.c_str(), "r");
-    if (f==NULL)
+    if (!f)
     {
-      ROS_WARN("can't load ground truth; wrong path");
-      //std::cerr << "can't load ground truth; wrong path " << csv_file << std::endl;
-      return 0;
+        ROS_WARN("can't load ground truth; wrong path");
+        // std::cerr << "can't load ground truth; wrong path " << csv_file << std::endl;
+        return 0;
     }
+
     char tmp[10000];
-    if (fgets(tmp, 10000, f) == NULL)
+    if (!fgets(tmp, 10000, f))
     {
         ROS_WARN("can't load ground truth; no data available");
     }
+
     while (!feof(f))
+    {
         benchmark.emplace_back(f);
+    }
+
     fclose(f);
     benchmark.pop_back();
     ROS_INFO("Data loaded: %d", (int)benchmark.size());
@@ -154,7 +159,7 @@ int main(int argc, char **argv)
     pub_path = n.advertise<nav_msgs::Path>("path", 1000);
 
     ros::Subscriber sub_odom = n.subscribe("estimated_odometry", 1000, odom_callback);
-    
+
     ros::Rate r(20);
     ros::spin();
 }

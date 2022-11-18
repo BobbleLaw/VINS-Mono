@@ -1,3 +1,6 @@
+#include <fstream>
+
+#include "utility/utility.h"
 #include "parameters.h"
 
 std::string IMAGE_TOPIC;
@@ -39,7 +42,7 @@ void readParameters(ros::NodeHandle &n)
     std::string config_file;
     config_file = readParam<std::string>(n, "config_file");
     cv::FileStorage fsSettings(config_file, cv::FileStorage::READ);
-    if(!fsSettings.isOpened())
+    if (!fsSettings.isOpened())
     {
         std::cerr << "ERROR: Wrong path to settings" << std::endl;
     }
@@ -69,6 +72,4 @@ void readParameters(ros::NodeHandle &n)
         FREQ = 100;
 
     fsSettings.release();
-
-
 }

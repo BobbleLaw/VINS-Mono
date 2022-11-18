@@ -1,4 +1,58 @@
+#include <algorithm>
+
+#include <ros/console.h>
+#include <ros/assert.h>
+
 #include "feature_manager.h"
+
+struct FeaturePerFrame
+{
+    FeaturePerFrame(const Eigen::Matrix<double, 7, 1> &_point, double td)
+    {
+        point.x() = _point(0);
+        point.y() = _point(1);
+        point.z() = _point(2);
+        uv.x() = _point(3);
+        uv.y() = _point(4);
+        velocity.x() = _point(5);
+        velocity.y() = _point(6);
+        cur_td = td;
+    }
+
+    double cur_td;
+    Vector3d point;
+    Vector2d uv;
+    Vector2d velocity;
+    double z;
+    bool is_used;
+    double parallax;
+    MatrixXd A;
+    VectorXd b;
+    double dep_gradient;
+};
+
+struct FeaturePerId
+{
+    const int feature_id;
+    int start_frame;
+    vector<FeaturePerFrame> feature_per_frame;
+
+    int used_num;
+    bool is_outlier;
+    bool is_margin;
+    double estimated_depth;
+    int solve_flag; // 0 haven't solve yet; 1 solve succ; 2 solve fail;
+
+    Vector3d gt_p;
+
+    FeaturePerId(int _feature_id, int _start_frame)
+        : feature_id(_feature_id), start_frame(_start_frame),
+          used_num(0), estimated_depth(-1.0), solve_flag(0)
+    {
+    }
+
+    int endFrame();
+};
 
 int FeaturePerId::endFrame()
 {
@@ -32,7 +86,6 @@ int FeatureManager::getFeatureCount()
     {
 
         it.used_num = it.feature_per_frame.size();
-
         if (it.used_num >= 2 && it.start_frame < WINDOW_SIZE - 2)
         {
             cnt++;
@@ -40,7 +93,6 @@ int FeatureManager::getFeatureCount()
     }
     return cnt;
 }
-
 
 bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, double td)
 {
@@ -54,10 +106,8 @@ bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vec
         FeaturePerFrame f_per_fra(id_pts.second[0].second, td);
 
         int feature_id = id_pts.first;
-        auto it = find_if(feature.begin(), feature.end(), [feature_id](const FeaturePerId &it)
-                          {
-            return it.feature_id == feature_id;
-                          });
+        const auto it = std::find_if(feature.begin(), feature.end(), [feature_id](const FeaturePerId &it)
+                                     { return it.feature_id == feature_id; });
 
         if (it == feature.end())
         {
@@ -88,12 +138,10 @@ bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vec
     {
         return true;
     }
-    else
-    {
-        ROS_DEBUG("parallax_sum: %lf, parallax_num: %d", parallax_sum, parallax_num);
-        ROS_DEBUG("current parallax: %lf", parallax_sum / parallax_num * FOCAL_LENGTH);
-        return parallax_sum / parallax_num >= MIN_PARALLAX;
-    }
+
+    ROS_DEBUG("parallax_sum: %lf, parallax_num: %d", parallax_sum, parallax_num);
+    ROS_DEBUG("current parallax: %lf", parallax_sum / parallax_num * FOCAL_LENGTH);
+    return parallax_sum / parallax_num >= MIN_PARALLAX;
 }
 
 void FeatureManager::debugShow()
@@ -106,13 +154,15 @@ void FeatureManager::debugShow()
         ROS_ASSERT(it.used_num >= 0);
 
         ROS_DEBUG("%d,%d,%d ", it.feature_id, it.used_num, it.start_frame);
+
         int sum = 0;
-        for (auto &j : it.feature_per_frame)
+        for (const auto &j : it.feature_per_frame)
         {
             ROS_DEBUG("%d,", int(j.is_used));
             sum += j.is_used;
-            printf("(%lf,%lf) ",j.point(0), j.point(1));
+            printf("(%lf,%lf) ", j.point(0), j.point(1));
         }
+
         ROS_ASSERT(it.used_num == sum);
     }
 }
@@ -120,7 +170,7 @@ void FeatureManager::debugShow()
 vector<pair<Vector3d, Vector3d>> FeatureManager::getCorresponding(int frame_count_l, int frame_count_r)
 {
     vector<pair<Vector3d, Vector3d>> corres;
-    for (auto &it : feature)
+    for (const auto &it : feature)
     {
         if (it.start_frame <= frame_count_l && it.endFrame() >= frame_count_r)
         {
@@ -129,12 +179,12 @@ vector<pair<Vector3d, Vector3d>> FeatureManager::getCorresponding(int frame_coun
             int idx_r = frame_count_r - it.start_frame;
 
             a = it.feature_per_frame[idx_l].point;
-
             b = it.feature_per_frame[idx_r].point;
-            
+
             corres.push_back(make_pair(a, b));
         }
     }
+
     return corres;
 }
 
@@ -148,13 +198,8 @@ void FeatureManager::setDepth(const VectorXd &x)
             continue;
 
         it_per_id.estimated_depth = 1.0 / x(++feature_index);
-        //ROS_INFO("feature id %d , start_frame %d, depth %f ", it_per_id->feature_id, it_per_id-> start_frame, it_per_id->estimated_depth);
-        if (it_per_id.estimated_depth < 0)
-        {
-            it_per_id.solve_flag = 2;
-        }
-        else
-            it_per_id.solve_flag = 1;
+        // ROS_INFO("feature id %d , start_frame %d, depth %f ", it_per_id->feature_id, it_per_id-> start_frame, it_per_id->estimated_depth);
+        it_per_id.solve_flag = (it_per_id.estimated_depth < 0) ? 2 : 1;
     }
 }
 
@@ -196,6 +241,7 @@ VectorXd FeatureManager::getDepthVector()
         dep_vec(++feature_index) = it_per_id->estimated_depth;
 #endif
     }
+
     return dep_vec;
 }
 
@@ -242,17 +288,16 @@ void FeatureManager::triangulate(Vector3d Ps[], Vector3d tic[], Matrix3d ric[])
         ROS_ASSERT(svd_idx == svd_A.rows());
         Eigen::Vector4d svd_V = Eigen::JacobiSVD<Eigen::MatrixXd>(svd_A, Eigen::ComputeThinV).matrixV().rightCols<1>();
         double svd_method = svd_V[2] / svd_V[3];
-        //it_per_id->estimated_depth = -b / A;
-        //it_per_id->estimated_depth = svd_V[2] / svd_V[3];
+        // it_per_id->estimated_depth = -b / A;
+        // it_per_id->estimated_depth = svd_V[2] / svd_V[3];
 
         it_per_id.estimated_depth = svd_method;
-        //it_per_id->estimated_depth = INIT_DEPTH;
+        // it_per_id->estimated_depth = INIT_DEPTH;
 
         if (it_per_id.estimated_depth < 0.1)
         {
             it_per_id.estimated_depth = INIT_DEPTH;
         }
-
     }
 }
 
@@ -283,7 +328,7 @@ void FeatureManager::removeBackShiftDepth(Eigen::Matrix3d marg_R, Eigen::Vector3
             it->start_frame--;
         else
         {
-            Eigen::Vector3d uv_i = it->feature_per_frame[0].point;  
+            Eigen::Vector3d uv_i = it->feature_per_frame[0].point;
             it->feature_per_frame.erase(it->feature_per_frame.begin());
             if (it->feature_per_frame.size() < 2)
             {
@@ -296,12 +341,10 @@ void FeatureManager::removeBackShiftDepth(Eigen::Matrix3d marg_R, Eigen::Vector3
                 Eigen::Vector3d w_pts_i = marg_R * pts_i + marg_P;
                 Eigen::Vector3d pts_j = new_R.transpose() * (w_pts_i - new_P);
                 double dep_j = pts_j(2);
-                if (dep_j > 0)
-                    it->estimated_depth = dep_j;
-                else
-                    it->estimated_depth = INIT_DEPTH;
+                it->estimated_depth = (dep_j > 0) ? dep_j : INIT_DEPTH;
             }
         }
+
         // remove tracking-lost feature after marginalize
         /*
         if (it->endFrame() < WINDOW_SIZE - 1)
@@ -354,8 +397,8 @@ void FeatureManager::removeFront(int frame_count)
 
 double FeatureManager::compensatedParallax2(const FeaturePerId &it_per_id, int frame_count)
 {
-    //check the second last frame is keyframe or not
-    //parallax betwwen seconde last frame and third last frame
+    // check the second last frame is keyframe or not
+    // parallax betwwen seconde last frame and third last frame
     const FeaturePerFrame &frame_i = it_per_id.feature_per_frame[frame_count - 2 - it_per_id.start_frame];
     const FeaturePerFrame &frame_j = it_per_id.feature_per_frame[frame_count - 1 - it_per_id.start_frame];
 
@@ -368,9 +411,9 @@ double FeatureManager::compensatedParallax2(const FeaturePerId &it_per_id, int f
     Vector3d p_i = frame_i.point;
     Vector3d p_i_comp;
 
-    //int r_i = frame_count - 2;
-    //int r_j = frame_count - 1;
-    //p_i_comp = ric[camera_id_j].transpose() * Rs[r_j].transpose() * Rs[r_i] * ric[camera_id_i] * p_i;
+    // int r_i = frame_count - 2;
+    // int r_j = frame_count - 1;
+    // p_i_comp = ric[camera_id_j].transpose() * Rs[r_j].transpose() * Rs[r_i] * ric[camera_id_i] * p_i;
     p_i_comp = p_i;
     double dep_i = p_i(2);
     double u_i = p_i(0) / dep_i;
