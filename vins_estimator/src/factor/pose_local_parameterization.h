@@ -2,8 +2,7 @@
 
 #include <ceres/ceres.h>
 
-#include "../utility/utility.h"
-
+// TODO: use ceres::Manifold
 class PoseLocalParameterization : public ceres::LocalParameterization
 {
     bool Plus(const double *x, const double *delta, double *x_plus_delta) const override;

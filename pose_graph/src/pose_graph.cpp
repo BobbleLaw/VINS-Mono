@@ -1,5 +1,167 @@
 #include "pose_graph.h"
 
+template <typename T>
+T NormalizeAngle(const T &angle_degrees)
+{
+    if (angle_degrees > T(180.0))
+        return angle_degrees - T(360.0);
+    if (angle_degrees < T(-180.0))
+        return angle_degrees + T(360.0);
+    return angle_degrees;
+};
+
+class AngleLocalParameterization
+{
+public:
+    template <typename T>
+    bool operator()(const T *theta_radians, const T *delta_theta_radians,
+                    T *theta_radians_plus_delta) const
+    {
+        *theta_radians_plus_delta =
+            NormalizeAngle(*theta_radians + *delta_theta_radians);
+
+        return true;
+    }
+
+    static ceres::LocalParameterization *Create()
+    {
+        return (new ceres::AutoDiffLocalParameterization<AngleLocalParameterization,
+                                                         1, 1>);
+    }
+};
+
+template <typename T>
+void YawPitchRollToRotationMatrix(const T yaw, const T pitch, const T roll, T R[9])
+{
+
+    T y = yaw / T(180.0) * T(M_PI);
+    T p = pitch / T(180.0) * T(M_PI);
+    T r = roll / T(180.0) * T(M_PI);
+
+    R[0] = cos(y) * cos(p);
+    R[1] = -sin(y) * cos(r) + cos(y) * sin(p) * sin(r);
+    R[2] = sin(y) * sin(r) + cos(y) * sin(p) * cos(r);
+    R[3] = sin(y) * cos(p);
+    R[4] = cos(y) * cos(r) + sin(y) * sin(p) * sin(r);
+    R[5] = -cos(y) * sin(r) + sin(y) * sin(p) * cos(r);
+    R[6] = -sin(p);
+    R[7] = cos(p) * sin(r);
+    R[8] = cos(p) * cos(r);
+};
+
+template <typename T>
+void RotationMatrixTranspose(const T R[9], T inv_R[9])
+{
+    inv_R[0] = R[0];
+    inv_R[1] = R[3];
+    inv_R[2] = R[6];
+    inv_R[3] = R[1];
+    inv_R[4] = R[4];
+    inv_R[5] = R[7];
+    inv_R[6] = R[2];
+    inv_R[7] = R[5];
+    inv_R[8] = R[8];
+};
+
+template <typename T>
+void RotationMatrixRotatePoint(const T R[9], const T t[3], T r_t[3])
+{
+    r_t[0] = R[0] * t[0] + R[1] * t[1] + R[2] * t[2];
+    r_t[1] = R[3] * t[0] + R[4] * t[1] + R[5] * t[2];
+    r_t[2] = R[6] * t[0] + R[7] * t[1] + R[8] * t[2];
+};
+
+struct FourDOFError
+{
+    FourDOFError(double t_x, double t_y, double t_z, double relative_yaw, double pitch_i, double roll_i)
+        : t_x(t_x), t_y(t_y), t_z(t_z), relative_yaw(relative_yaw), pitch_i(pitch_i), roll_i(roll_i) {}
+
+    template <typename T>
+    bool operator()(const T *const yaw_i, const T *ti, const T *yaw_j, const T *tj, T *residuals) const
+    {
+        T t_w_ij[3];
+        t_w_ij[0] = tj[0] - ti[0];
+        t_w_ij[1] = tj[1] - ti[1];
+        t_w_ij[2] = tj[2] - ti[2];
+
+        // euler to rotation
+        T w_R_i[9];
+        YawPitchRollToRotationMatrix(yaw_i[0], T(pitch_i), T(roll_i), w_R_i);
+        // rotation transpose
+        T i_R_w[9];
+        RotationMatrixTranspose(w_R_i, i_R_w);
+        // rotation matrix rotate point
+        T t_i_ij[3];
+        RotationMatrixRotatePoint(i_R_w, t_w_ij, t_i_ij);
+
+        residuals[0] = (t_i_ij[0] - T(t_x));
+        residuals[1] = (t_i_ij[1] - T(t_y));
+        residuals[2] = (t_i_ij[2] - T(t_z));
+        residuals[3] = NormalizeAngle(yaw_j[0] - yaw_i[0] - T(relative_yaw));
+
+        return true;
+    }
+
+    static ceres::CostFunction *Create(const double t_x, const double t_y, const double t_z,
+                                       const double relative_yaw, const double pitch_i, const double roll_i)
+    {
+        return (new ceres::AutoDiffCostFunction<
+                FourDOFError, 4, 1, 3, 1, 3>(
+            new FourDOFError(t_x, t_y, t_z, relative_yaw, pitch_i, roll_i)));
+    }
+
+    double t_x, t_y, t_z;
+    double relative_yaw, pitch_i, roll_i;
+};
+
+struct FourDOFWeightError
+{
+    FourDOFWeightError(double t_x, double t_y, double t_z, double relative_yaw, double pitch_i, double roll_i)
+        : t_x(t_x), t_y(t_y), t_z(t_z), relative_yaw(relative_yaw), pitch_i(pitch_i), roll_i(roll_i)
+    {
+        weight = 1;
+    }
+
+    template <typename T>
+    bool operator()(const T *const yaw_i, const T *ti, const T *yaw_j, const T *tj, T *residuals) const
+    {
+        T t_w_ij[3];
+        t_w_ij[0] = tj[0] - ti[0];
+        t_w_ij[1] = tj[1] - ti[1];
+        t_w_ij[2] = tj[2] - ti[2];
+
+        // euler to rotation
+        T w_R_i[9];
+        YawPitchRollToRotationMatrix(yaw_i[0], T(pitch_i), T(roll_i), w_R_i);
+        // rotation transpose
+        T i_R_w[9];
+        RotationMatrixTranspose(w_R_i, i_R_w);
+        // rotation matrix rotate point
+        T t_i_ij[3];
+        RotationMatrixRotatePoint(i_R_w, t_w_ij, t_i_ij);
+
+        residuals[0] = (t_i_ij[0] - T(t_x)) * T(weight);
+        residuals[1] = (t_i_ij[1] - T(t_y)) * T(weight);
+        residuals[2] = (t_i_ij[2] - T(t_z)) * T(weight);
+        residuals[3] = NormalizeAngle((yaw_j[0] - yaw_i[0] - T(relative_yaw))) * T(weight) / T(10.0);
+
+        return true;
+    }
+
+    static ceres::CostFunction *Create(const double t_x, const double t_y, const double t_z,
+                                       const double relative_yaw, const double pitch_i, const double roll_i)
+    {
+        return (new ceres::AutoDiffCostFunction<
+                FourDOFWeightError, 4, 1, 3, 1, 3>(
+            new FourDOFWeightError(t_x, t_y, t_z, relative_yaw, pitch_i, roll_i)));
+    }
+
+    double t_x, t_y, t_z;
+    double relative_yaw, pitch_i, roll_i;
+    double weight;
+};
+
+/* PoseGraph starts from here */
 PoseGraph::PoseGraph()
 {
     posegraph_visualization = new CameraPoseVisualization(1.0, 0.0, 1.0, 1.0);
@@ -21,15 +183,6 @@ PoseGraph::PoseGraph()
 PoseGraph::~PoseGraph()
 {
     t_optimization.join();
-}
-
-void PoseGraph::registerPub(ros::NodeHandle &n)
-{
-    pub_pg_path = n.advertise<nav_msgs::Path>("pose_graph_path", 1000);
-    pub_base_path = n.advertise<nav_msgs::Path>("base_path", 1000);
-    pub_pose_graph = n.advertise<visualization_msgs::MarkerArray>("pose_graph", 1000);
-    for (int i = 1; i < 10; i++)
-        pub_path[i] = n.advertise<nav_msgs::Path>("path_" + to_string(i), 1000);
 }
 
 void PoseGraph::loadVocabulary(std::string voc_path)
@@ -71,6 +224,7 @@ void PoseGraph::addKeyFrame(KeyFrame *cur_kf, bool flag_detect_loop)
     {
         addKeyFrameIntoVoc(cur_kf);
     }
+
     if (loop_index != -1)
     {
         // printf(" %d detect loop with %d \n", cur_kf->index, loop_index);
@@ -106,8 +260,7 @@ void PoseGraph::addKeyFrame(KeyFrame *cur_kf, bool flag_detect_loop)
                 vio_P_cur = w_r_vio * vio_P_cur + w_t_vio;
                 vio_R_cur = w_r_vio * vio_R_cur;
                 cur_kf->updateVioPose(vio_P_cur, vio_R_cur);
-                list<KeyFrame *>::iterator it = keyframelist.begin();
-                for (; it != keyframelist.end(); it++)
+                for (auto it = keyframelist.begin(); it != keyframelist.end(); it++)
                 {
                     if ((*it)->sequence == cur_kf->sequence)
                     {
@@ -167,21 +320,21 @@ void PoseGraph::addKeyFrame(KeyFrame *cur_kf, bool flag_detect_loop)
     // draw local connection
     if (SHOW_S_EDGE)
     {
-        list<KeyFrame *>::reverse_iterator rit = keyframelist.rbegin();
-        for (int i = 0; i < 4; i++)
+        for (auto rit = keyframelist.rbegin(); rit != keyframelist.rend(); rit++)
         {
-            if (rit == keyframelist.rend())
-                break;
-            Vector3d conncected_P;
-            Matrix3d connected_R;
-            if ((*rit)->sequence == cur_kf->sequence)
+            for (int i = 0; i < 4; i++)
             {
-                (*rit)->getPose(conncected_P, connected_R);
-                posegraph_visualization->add_edge(P, conncected_P);
+                Vector3d conncected_P;
+                Matrix3d connected_R;
+                if ((*rit)->sequence == cur_kf->sequence)
+                {
+                    (*rit)->getPose(conncected_P, connected_R);
+                    posegraph_visualization->add_edge(P, conncected_P);
+                }
             }
-            rit++;
         }
     }
+
     if (SHOW_L_EDGE)
     {
         if (cur_kf->has_loop)
@@ -252,31 +405,29 @@ void PoseGraph::loadKeyFrame(KeyFrame *cur_kf, bool flag_detect_loop)
     // draw local connection
     if (SHOW_S_EDGE)
     {
-        list<KeyFrame *>::reverse_iterator rit = keyframelist.rbegin();
-        for (int i = 0; i < 1; i++)
+        for (auto rit = keyframelist.rbegin(); rit != keyframelist.rend(); rit++)
         {
-            if (rit == keyframelist.rend())
-                break;
-            Vector3d conncected_P;
-            Matrix3d connected_R;
-            if ((*rit)->sequence == cur_kf->sequence)
+            for (int i = 0; i < 1; i++)
             {
-                (*rit)->getPose(conncected_P, connected_R);
-                posegraph_visualization->add_edge(P, conncected_P);
+                Vector3d conncected_P;
+                Matrix3d connected_R;
+                if ((*rit)->sequence == cur_kf->sequence)
+                {
+                    (*rit)->getPose(conncected_P, connected_R);
+                    posegraph_visualization->add_edge(P, conncected_P);
+                }
             }
-            rit++;
         }
     }
-    /*
-    if (cur_kf->has_loop)
-    {
-        KeyFrame* connected_KF = getKeyFrame(cur_kf->loop_index);
-        Vector3d connected_P;
-        Matrix3d connected_R;
-        connected_KF->getPose(connected_P,  connected_R);
-        posegraph_visualization->add_loopedge(P, connected_P, SHIFT);
-    }
-    */
+
+    // if (cur_kf->has_loop)
+    // {
+    //     KeyFrame *connected_KF = getKeyFrame(cur_kf->loop_index);
+    //     Vector3d connected_P;
+    //     Matrix3d connected_R;
+    //     connected_KF->getPose(connected_P, connected_R);
+    //     posegraph_visualization->add_loopedge(P, connected_P, SHIFT);
+    // }
 
     keyframelist.push_back(cur_kf);
     // publish();
@@ -305,6 +456,7 @@ int PoseGraph::detectLoop(KeyFrame *keyframe, int frame_index)
         putText(compressed_image, "feature_num:" + to_string(feature_num), cv::Point2f(10, 10), CV_FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(255));
         image_pool[frame_index] = compressed_image;
     }
+
     TicToc tmp_t;
     // first query; then add this frame into database!
     QueryResults ret;
@@ -372,8 +524,8 @@ int PoseGraph::detectLoop(KeyFrame *keyframe, int frame_index)
         }
         return min_index;
     }
-    else
-        return -1;
+
+    return -1;
 }
 
 void PoseGraph::addKeyFrameIntoVoc(KeyFrame *keyframe)
@@ -433,10 +585,8 @@ void PoseGraph::optimize4DoF()
             ceres::LocalParameterization *angle_local_parameterization =
                 AngleLocalParameterization::Create();
 
-            list<KeyFrame *>::iterator it;
-
             int i = 0;
-            for (it = keyframelist.begin(); it != keyframelist.end(); it++)
+            for (auto it = keyframelist.begin(); it != keyframelist.end(); it++)
             {
                 if ((*it)->index < first_looped_index)
                     continue;
@@ -520,10 +670,11 @@ void PoseGraph::optimize4DoF()
             */
             m_keyframelist.lock();
             i = 0;
-            for (it = keyframelist.begin(); it != keyframelist.end(); it++)
+            for (auto it = keyframelist.begin(); it != keyframelist.end(); it++)
             {
                 if ((*it)->index < first_looped_index)
                     continue;
+
                 Quaterniond tmp_q;
                 tmp_q = Utility::ypr2R(Vector3d(euler_array[i][0], euler_array[i][1], euler_array[i][2]));
                 Vector3d tmp_t = Vector3d(t_array[i][0], t_array[i][1], t_array[i][2]);
@@ -570,7 +721,7 @@ void PoseGraph::optimize4DoF()
 void PoseGraph::updatePath()
 {
     m_keyframelist.lock();
-    list<KeyFrame *>::iterator it;
+
     for (int i = 1; i <= sequence_cnt; i++)
     {
         path[i].poses.clear();
@@ -584,7 +735,7 @@ void PoseGraph::updatePath()
         loop_path_file_tmp.close();
     }
 
-    for (it = keyframelist.begin(); it != keyframelist.end(); it++)
+    for (auto it = keyframelist.begin(); it != keyframelist.end(); it++)
     {
         Vector3d P;
         Matrix3d R;
@@ -631,16 +782,15 @@ void PoseGraph::updatePath()
                            << endl;
             loop_path_file.close();
         }
+
         // draw local connection
         if (SHOW_S_EDGE)
         {
-            list<KeyFrame *>::reverse_iterator rit = keyframelist.rbegin();
-            list<KeyFrame *>::reverse_iterator lrit;
-            for (; rit != keyframelist.rend(); rit++)
+            for (rit = keyframelist.rbegin(); rit != keyframelist.rend(); rit++)
             {
                 if ((*rit)->index == (*it)->index)
                 {
-                    lrit = rit;
+                    auto lrit{rit};
                     lrit++;
                     for (int i = 0; i < 4; i++)
                     {
@@ -659,6 +809,7 @@ void PoseGraph::updatePath()
                 }
             }
         }
+
         if (SHOW_L_EDGE)
         {
             if ((*it)->has_loop && (*it)->sequence == sequence_cnt)
@@ -691,8 +842,7 @@ void PoseGraph::savePoseGraph()
     string file_path = POSE_GRAPH_SAVE_PATH + "pose_graph.txt";
     pFile = fopen(file_path.c_str(), "w");
     // fprintf(pFile, "index time_stamp Tx Ty Tz Qw Qx Qy Qz loop_index loop_info\n");
-    list<KeyFrame *>::iterator it;
-    for (it = keyframelist.begin(); it != keyframelist.end(); it++)
+    for (auto it = keyframelist.begin(); it != keyframelist.end(); it++)
     {
         std::string image_path, descriptor_path, brief_path, keypoints_path;
         if (DEBUG_IMAGE)
@@ -857,11 +1007,20 @@ void PoseGraph::loadPoseGraph()
     base_sequence = 0;
 }
 
+void PoseGraph::registerPub(ros::NodeHandle &n)
+{
+    pub_pg_path = n.advertise<nav_msgs::Path>("pose_graph_path", 1000);
+    pub_base_path = n.advertise<nav_msgs::Path>("base_path", 1000);
+    pub_pose_graph = n.advertise<visualization_msgs::MarkerArray>("pose_graph", 1000);
+    for (int i = 1; i < 10; i++)
+        pub_path[i] = n.advertise<nav_msgs::Path>("path_" + to_string(i), 1000);
+}
+
 void PoseGraph::publish()
 {
     for (int i = 1; i <= sequence_cnt; i++)
     {
-        // if (sequence_loop[i] == true || i == base_sequence)
+        // if (sequence_loop[i] || i == base_sequence)
         if (1 || i == base_sequence)
         {
             pub_pg_path.publish(path[i]);

@@ -8,11 +8,10 @@
 #include <cmath>
 #include <cassert>
 #include <cstring>
-#include <eigen3/Eigen/Dense>
+#include <Eigen/Dense>
 
-class Utility
+namespace Utility
 {
-  public:
     template <typename Derived>
     static Eigen::Quaternion<typename Derived::Scalar> deltaQ(const Eigen::MatrixBase<Derived> &theta)
     {
@@ -41,10 +40,6 @@ class Utility
     template <typename Derived>
     static Eigen::Quaternion<typename Derived::Scalar> positify(const Eigen::QuaternionBase<Derived> &q)
     {
-        //printf("a: %f %f %f %f", q.w(), q.x(), q.y(), q.z());
-        //Eigen::Quaternion<typename Derived::Scalar> p(-q.w(), -q.x(), -q.y(), -q.z());
-        //printf("b: %f %f %f %f", p.w(), p.x(), p.y(), p.z());
-        //return q.template w() >= (typename Derived::Scalar)(0.0) ? q : Eigen::Quaternion<typename Derived::Scalar>(-q.w(), -q.x(), -q.y(), -q.z());
         return q;
     }
 
@@ -53,8 +48,10 @@ class Utility
     {
         Eigen::Quaternion<typename Derived::Scalar> qq = positify(q);
         Eigen::Matrix<typename Derived::Scalar, 4, 4> ans;
-        ans(0, 0) = qq.w(), ans.template block<1, 3>(0, 1) = -qq.vec().transpose();
-        ans.template block<3, 1>(1, 0) = qq.vec(), ans.template block<3, 3>(1, 1) = qq.w() * Eigen::Matrix<typename Derived::Scalar, 3, 3>::Identity() + skewSymmetric(qq.vec());
+        ans(0, 0) = qq.w();
+        ans.template block<1, 3>(0, 1) = -qq.vec().transpose();
+        ans.template block<3, 1>(1, 0) = qq.vec();
+        ans.template block<3, 3>(1, 1) = qq.w() * Eigen::Matrix<typename Derived::Scalar, 3, 3>::Identity() + skewSymmetric(qq.vec());
         return ans;
     }
 
@@ -63,7 +60,8 @@ class Utility
     {
         Eigen::Quaternion<typename Derived::Scalar> pp = positify(p);
         Eigen::Matrix<typename Derived::Scalar, 4, 4> ans;
-        ans(0, 0) = pp.w(), ans.template block<1, 3>(0, 1) = -pp.vec().transpose();
+        ans(0, 0) = pp.w();
+        ans.template block<1, 3>(0, 1) = -pp.vec().transpose();
         ans.template block<3, 1>(1, 0) = pp.vec(), ans.template block<3, 3>(1, 1) = pp.w() * Eigen::Matrix<typename Derived::Scalar, 3, 3>::Identity() - skewSymmetric(pp.vec());
         return ans;
     }
@@ -133,21 +131,20 @@ class Utility
     }
 
     template <typename T>
-    static T normalizeAngle(const T& angle_degrees) {
-      T two_pi(2.0 * 180);
-      if (angle_degrees > 0)
-      return angle_degrees -
-          two_pi * std::floor((angle_degrees + T(180)) / two_pi);
-      else
+    static T normalizeAngle(const T &angle_degrees)
+    {
+        T two_pi(2.0 * 180);
+        if (angle_degrees > 0)
+            return angle_degrees -
+                   two_pi * std::floor((angle_degrees + T(180)) / two_pi);
         return angle_degrees +
-            two_pi * std::floor((-angle_degrees + T(180)) / two_pi);
+               two_pi * std::floor((-angle_degrees + T(180)) / two_pi);
     };
 };
 
 class FileSystemHelper
 {
-  public:
-
+public:
     /******************************************************************************
      * Recursively create directory if `path` not exists.
      * Return 0 if success.
@@ -156,12 +153,12 @@ class FileSystemHelper
     {
         struct stat info;
         int statRC = stat(path, &info);
-        if( statRC != 0 )
+        if (statRC != 0)
         {
-            if (errno == ENOENT)  
+            if (errno == ENOENT)
             {
                 printf("%s not exists, trying to create it \n", path);
-                if (! createDirectoryIfNotExists(dirname(strdupa(path))))
+                if (!createDirectoryIfNotExists(dirname(strdupa(path))))
                 {
                     if (mkdir(path, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) != 0)
                     {
@@ -171,16 +168,16 @@ class FileSystemHelper
                     else
                         return 0;
                 }
-                else 
+                else
                     return 1;
             } // directory not exists
-            if (errno == ENOTDIR) 
-            { 
+            if (errno == ENOTDIR)
+            {
                 fprintf(stderr, "%s is not a directory path \n", path);
-                return 1; 
+                return 1;
             } // something in path prefix is not a dir
             return 1;
         }
-        return ( info.st_mode & S_IFDIR ) ? 0 : 1;
+        return (info.st_mode & S_IFDIR) ? 0 : 1;
     }
 };

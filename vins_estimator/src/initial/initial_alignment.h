@@ -9,24 +9,18 @@
 #include "../utility/utility.h"
 #include "../feature_manager.h"
 
-using namespace Eigen;
-using namespace std;
-
 class ImageFrame
 {
 public:
     ImageFrame(){};
-    ImageFrame(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &_points, double _t) : t{_t}, is_key_frame{false}
-    {
-        points = _points;
-    };
+    ImageFrame(const std::map<int, std::vector<std::pair<int, Eigen::Matrix<double, 7, 1>>>> &_points, double _t) : points{_points}, t{_t} {};
 
-    map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> points;
+    std::map<int, std::vector<std::pair<int, Eigen::Matrix<double, 7, 1>>>> points;
     double t;
-    Matrix3d R;
-    Vector3d T;
+    Eigen::Matrix3d R;
+    Eigen::Vector3d T;
     IntegrationBase *pre_integration;
-    bool is_key_frame;
+    bool is_key_frame{false};
 };
 
 bool VisualIMUAlignment(map<double, ImageFrame> &all_image_frame, Vector3d *Bgs, Vector3d &g, VectorXd &x);

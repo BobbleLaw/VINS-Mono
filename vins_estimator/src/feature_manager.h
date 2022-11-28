@@ -12,9 +12,9 @@ struct FeaturePerId;
 class FeatureManager
 {
 public:
-  FeatureManager(Matrix3d _Rs[]);
+  explicit FeatureManager(Eigen::Matrix3d _Rs[]);
 
-  void setRic(Matrix3d _ric[]);
+  void setRic(Eigen::Matrix3d _ric[]);
 
   void clearState();
 
@@ -34,9 +34,8 @@ public:
   void removeFront(int frame_count);
   void removeBack();
   void removeBackShiftDepth(Eigen::Matrix3d marg_R, Eigen::Vector3d marg_P, Eigen::Matrix3d new_R, Eigen::Vector3d new_P);
-
-  void removeOutlier();
   void removeFailures();
+  void removeOutlier();
 
   void debugShow();
 
@@ -44,8 +43,6 @@ public:
   int last_track_num;
 
 private:
-  double compensatedParallax2(const FeaturePerId &it_per_id, int frame_count);
-
-  const Matrix3d *Rs;
-  Matrix3d ric[NUM_OF_CAM];
+  const Eigen::Matrix3d *Rs;
+  Eigen::Matrix3d ric[NUM_OF_CAM];
 };

@@ -213,7 +213,6 @@ void restart_callback(const std_msgs::BoolConstPtr &restart_msg)
 
 void relocalization_callback(const sensor_msgs::PointCloudConstPtr &points_msg)
 {
-    // printf("relocalization callback! \n");
     m_buf.lock();
     relo_buf.push(points_msg);
     m_buf.unlock();

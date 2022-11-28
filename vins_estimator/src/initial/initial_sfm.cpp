@@ -77,7 +77,7 @@ bool solveFrameByPnP(Matrix3d &R_initial, Vector3d &P_initial, int i,
 
 	if (int(pts_2_vector.size()) < 15)
 	{
-		printf("unstable features tracking, please slowly move you device!\n");
+		printf("Unstable features tracking, please slowly move you device!\n");
 		if (int(pts_2_vector.size()) < 10)
 			return false;
 	}
@@ -233,8 +233,9 @@ bool GlobalSFM::construct(int frame_num, Quaterniond *q, Vector3d *T, int l,
 	// 5: triangulate all other points
 	for (int j = 0; j < feature_num; j++)
 	{
-		if (sfm_f[j].state == true)
+		if (sfm_f[j].state)
 			continue;
+
 		if ((int)sfm_f[j].observation.size() >= 2)
 		{
 			Vector2d point0, point1;
@@ -252,23 +253,24 @@ bool GlobalSFM::construct(int frame_num, Quaterniond *q, Vector3d *T, int l,
 		}
 	}
 
-	/*
-		for (int i = 0; i < frame_num; i++)
-		{
-			q[i] = c_Rotation[i].transpose();
-			cout << "solvePnP  q" << " i " << i <<"  " <<q[i].w() << "  " << q[i].vec().transpose() << endl;
-		}
-		for (int i = 0; i < frame_num; i++)
-		{
-			Vector3d t_tmp;
-			t_tmp = -1 * (q[i] * c_Translation[i]);
-			cout << "solvePnP  t" << " i " << i <<"  " << t_tmp.x() <<"  "<< t_tmp.y() <<"  "<< t_tmp.z() << endl;
-		}
-	*/
+	// for (int i = 0; i < frame_num; i++)
+	// {
+	// 	q[i] = c_Rotation[i].transpose();
+	// 	cout << "solvePnP  q"
+	// 		 << " i " << i << "  " << q[i].w() << "  " << q[i].vec().transpose() << endl;
+	// }
+
+	// for (int i = 0; i < frame_num; i++)
+	// {
+	// 	Vector3d t_tmp;
+	// 	t_tmp = -1 * (q[i] * c_Translation[i]);
+	// 	cout << "solvePnP  t"
+	// 		 << " i " << i << "  " << t_tmp.x() << "  " << t_tmp.y() << "  " << t_tmp.z() << endl;
+	// }
 
 	// full BA
 	ceres::Problem problem;
-	ceres::LocalParameterization *local_parameterization = new ceres::QuaternionParameterization();
+	auto *local_parameterization = new ceres::QuaternionParameterization();
 	// cout << " begin full BA " << endl;
 	for (int i = 0; i < frame_num; i++)
 	{
@@ -294,14 +296,14 @@ bool GlobalSFM::construct(int frame_num, Quaterniond *q, Vector3d *T, int l,
 
 	for (int i = 0; i < feature_num; i++)
 	{
-		if (sfm_f[i].state != true)
+		if (!sfm_f[i].state)
 			continue;
-		for (int j = 0; j < int(sfm_f[i].observation.size()); j++)
+
+		for (size_t j{0}; j < sfm_f[i].observation.size(); j++)
 		{
 			int l = sfm_f[i].observation[j].first;
-			ceres::CostFunction *cost_function = ReprojectionError3D::Create(
-				sfm_f[i].observation[j].second.x(),
-				sfm_f[i].observation[j].second.y());
+			auto *cost_function = ReprojectionError3D::Create(sfm_f[i].observation[j].second.x(),
+															  sfm_f[i].observation[j].second.y());
 
 			problem.AddResidualBlock(cost_function, nullptr, c_rotation[l], c_translation[l],
 									 sfm_f[i].position);
@@ -315,15 +317,13 @@ bool GlobalSFM::construct(int frame_num, Quaterniond *q, Vector3d *T, int l,
 	ceres::Solver::Summary summary;
 	ceres::Solve(options, &problem, &summary);
 	// std::cout << summary.BriefReport() << "\n";
-	if (summary.termination_type == ceres::CONVERGENCE || summary.final_cost < 5e-03)
-	{
-		// cout << "vision only BA converge" << endl;
-	}
-	else
+	if (summary.termination_type != ceres::CONVERGENCE && summary.final_cost >= 5e-03)
 	{
 		// cout << "vision only BA not converge " << endl;
-		return false;
+		return false
 	}
+
+	// cout << "vision only BA converge" << endl;
 	for (int i = 0; i < frame_num; i++)
 	{
 		q[i].w() = c_rotation[i][0];
@@ -333,16 +333,19 @@ bool GlobalSFM::construct(int frame_num, Quaterniond *q, Vector3d *T, int l,
 		q[i] = q[i].inverse();
 		// cout << "final  q" << " i " << i <<"  " <<q[i].w() << "  " << q[i].vec().transpose() << endl;
 	}
+
 	for (int i = 0; i < frame_num; i++)
 	{
 
 		T[i] = -1 * (q[i] * Vector3d(c_translation[i][0], c_translation[i][1], c_translation[i][2]));
 		// cout << "final  t" << " i " << i <<"  " << T[i](0) <<"  "<< T[i](1) <<"  "<< T[i](2) << endl;
 	}
+
 	for (int i = 0; i < (int)sfm_f.size(); i++)
 	{
 		if (sfm_f[i].state)
 			sfm_tracked_points[sfm_f[i].id] = Vector3d(sfm_f[i].position[0], sfm_f[i].position[1], sfm_f[i].position[2]);
 	}
+
 	return true;
 }
