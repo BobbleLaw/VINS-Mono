@@ -5,8 +5,8 @@
 
 #include <Eigen/Dense>
 
+#include "utils/utility.h"
 #include "../factor/imu_factor.h"
-#include "../utility/utility.h"
 #include "../feature_manager.h"
 
 class ImageFrame

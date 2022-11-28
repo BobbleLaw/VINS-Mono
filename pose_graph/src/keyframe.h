@@ -11,8 +11,9 @@
 #include "camodocal/camera_models/CameraFactory.h"
 #include "camodocal/camera_models/CataCamera.h"
 #include "camodocal/camera_models/PinholeCamera.h"
-#include "utility/tic_toc.h"
-#include "utility/utility.h"
+#include "utils/tic_toc.h"
+#include "utils/utility.h"
+
 #include "parameters.h"
 
 using namespace DVision;

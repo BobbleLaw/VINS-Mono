@@ -1,26 +1,31 @@
+#include <iostream>
+#include <mutex>
+#include <queue>
+#include <thread>
 #include <vector>
+
+#include <cv_bridge/cv_bridge.h>
+#include <ros/package.h>
 #include <ros/ros.h>
 #include <nav_msgs/Odometry.h>
 #include <nav_msgs/Path.h>
 #include <sensor_msgs/PointCloud.h>
 #include <sensor_msgs/Image.h>
 #include <sensor_msgs/image_encodings.h>
-#include <visualization_msgs/Marker.h>
 #include <std_msgs/Bool.h>
-#include <cv_bridge/cv_bridge.h>
-#include <iostream>
-#include <ros/package.h>
-#include <mutex>
-#include <queue>
-#include <thread>
-#include <eigen3/Eigen/Dense>
+#include <visualization_msgs/Marker.h>
+
+#include <Eigen/Dense>
 #include <opencv2/opencv.hpp>
 #include <opencv2/core/eigen.hpp>
+
+#include "utils/tic_toc.h"
+#include "utils/CameraPoseVisualization.h"
+
 #include "keyframe.h"
-#include "utility/tic_toc.h"
 #include "pose_graph.h"
-#include "utility/CameraPoseVisualization.h"
 #include "parameters.h"
+
 #define SKIP_FIRST_CNT 10
 using namespace std;
 

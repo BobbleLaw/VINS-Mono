@@ -1,28 +1,32 @@
 #pragma once
 
-#include <thread>
+#include <assert.h>
 #include <mutex>
-#include <opencv2/opencv.hpp>
-#include <eigen3/Eigen/Dense>
+#include <queue>
+#include <stdio.h>
 #include <string>
+#include <thread>
+
 #include <ceres/ceres.h>
 #include <ceres/rotation.h>
-#include <queue>
-#include <assert.h>
-#include <nav_msgs/Path.h>
+#include <Eigen/Dense>
+#include <opencv2/opencv.hpp>
+
 #include <geometry_msgs/PointStamped.h>
 #include <nav_msgs/Odometry.h>
-#include <stdio.h>
+#include <nav_msgs/Path.h>
 #include <ros/ros.h>
-#include "keyframe.h"
-#include "utility/tic_toc.h"
-#include "utility/utility.h"
-#include "utility/CameraPoseVisualization.h"
-#include "utility/tic_toc.h"
+
 #include "ThirdParty/DBoW/DBoW2.h"
-#include "ThirdParty/DVision/DVision.h"
 #include "ThirdParty/DBoW/TemplatedDatabase.h"
 #include "ThirdParty/DBoW/TemplatedVocabulary.h"
+#include "ThirdParty/DVision/DVision.h"
+
+#include "utils/CameraPoseVisualization.h"
+#include "utils/tic_toc.h"
+#include "utils/utility.h"
+
+#include "keyframe.h"
 
 #define SHOW_S_EDGE false
 #define SHOW_L_EDGE true

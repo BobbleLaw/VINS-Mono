@@ -14,7 +14,7 @@
 #include <visualization_msgs/Marker.h>
 #include <tf/transform_broadcaster.h>
 #include "CameraPoseVisualization.h"
-#include <eigen3/Eigen/Dense>
+#include <Eigen/Dense>
 #include "../estimator.h"
 #include "../parameters.h"
 #include <fstream>

@@ -4,9 +4,10 @@
 
 #include <ceres/ceres.h>
 #include <Eigen/Dense>
+
 #include <ros/assert.h>
 
-#include "../utility/utility.h"
+#include "utils/utility.h"
 #include "../parameters.h"
 #include "integration_base.h"
 

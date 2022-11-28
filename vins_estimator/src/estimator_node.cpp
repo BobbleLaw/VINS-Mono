@@ -1,16 +1,18 @@
-#include <stdio.h>
-#include <queue>
-#include <map>
-#include <thread>
-#include <mutex>
 #include <condition_variable>
+#include <map>
+#include <mutex>
+#include <queue>
+#include <stdio.h>
+#include <thread>
+
 #include <ros/ros.h>
 #include <cv_bridge/cv_bridge.h>
+
 #include <opencv2/opencv.hpp>
 
+#include "utils/visualization.h"
 #include "estimator.h"
 #include "parameters.h"
-#include "utility/visualization.h"
 
 Estimator estimator;
 

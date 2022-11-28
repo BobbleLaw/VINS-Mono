@@ -1,6 +1,6 @@
 #include <fstream>
 
-#include "utility/utility.h"
+#include "utils/utility.h"
 #include "parameters.h"
 
 std::string IMAGE_TOPIC;

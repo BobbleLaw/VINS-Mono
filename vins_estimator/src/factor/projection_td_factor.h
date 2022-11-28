@@ -3,8 +3,8 @@
 #include <Eigen/Dense>
 #include <ceres/ceres.h>
 
-#include "../utility/utility.h"
-#include "../utility/tic_toc.h"
+#include "utils/utility.h"
+#include "utils/tic_toc.h"
 #include "../parameters.h"
 
 class ProjectionTdFactor : public ceres::SizedCostFunction<2, 7, 7, 7, 1, 1>

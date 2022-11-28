@@ -3,11 +3,10 @@
 #include <cstdlib>
 #include <unordered_map>
 
-
 #include <ceres/ceres.h>
 
-#include "../utility/utility.h"
-#include "../utility/tic_toc.h"
+#include "utils/tic_toc.h"
+#include "utils/utility.h"
 
 constexpr int NUM_THREADS{4};
 
@@ -39,7 +38,7 @@ public:
 
     int localSize(int size) const;
     int globalSize(int size) const;
-    
+
     void addResidualBlockInfo(ResidualBlockInfo *residual_block_info);
     void preMarginalize();
     void marginalize();
