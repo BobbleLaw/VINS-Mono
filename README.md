@@ -38,7 +38,7 @@ alt="Mobile platform" width="240" height="180" border="10" /></a>
 
 * **VINS-Mono: A Robust and Versatile Monocular Visual-Inertial State Estimator**, Tong Qin, Peiliang Li, Zhenfei Yang, Shaojie Shen, IEEE Transactions on Robotics[pdf](https://ieeexplore.ieee.org/document/8421746/?arnumber=8421746&source=authoralert) 
 
-*If you use VINS-Mono for your academic research, please cite at least one of our related papers.*[bib](https://github.com/HKUST-Aerial-Robotics/VINS-Mono/blob/master/support_files/paper_bib.txt)
+*If you use VINS-Mono for your academic research, please cite at least one of our related papers.*[bib](docs/paper_bib.txt)
 
 ## 1. Prerequisites
 1.1 **Ubuntu** and **ROS**
