@@ -205,9 +205,9 @@ namespace
     }
 }
 
-bool MotionEstimator::solveRelativeRT(const vector<pair<Vector3d, Vector3d>> &corrs, Matrix3d &Rotation, Vector3d &Translation)
+bool MotionEstimator::solveRelativeRT(const std::vector<Correspondence> &corres, Eigen::Matrix3d &Rotation, Eigen::Vector3d &Translation) const
 {
-    const auto size = corrs.size();
+    const auto size = corres.size();
     if (size < 16)
     {
         return false;
@@ -218,8 +218,8 @@ bool MotionEstimator::solveRelativeRT(const vector<pair<Vector3d, Vector3d>> &co
     rr.reserve(size);
     for (size_t i{0}; i < size; ++i)
     {
-        ll.emplace_back(corrs[i].first(0), corrs[i].first(1));
-        rr.emplace_back(corrs[i].second(0), corrs[i].second(1));
+        ll.emplace_back(corres[i].first(0), corres[i].first(1));
+        rr.emplace_back(corres[i].second(0), corres[i].second(1));
     }
 
     cv::Mat mask;
@@ -227,8 +227,8 @@ bool MotionEstimator::solveRelativeRT(const vector<pair<Vector3d, Vector3d>> &co
     cv::Mat E = cv::findFundamentalMat(ll, rr, cv::FM_RANSAC, 0.3 / 460, 0.99, mask);
     cv::Mat cameraMatrix = (cv::Mat_<double>(3, 3) << 1, 0, 0, 0, 1, 0, 0, 0, 1);
     cv::Mat rot, trans;
-    int inlier_cnt = recoverPose(E, ll, rr, cameraMatrix, rot, trans, mask);
-
+    const int inlier_cnt = recoverPose(E, ll, rr, cameraMatrix, rot, trans, mask);
+    
     Eigen::Matrix3d R;
     Eigen::Vector3d T;
     for (int i = 0; i < 3; i++)

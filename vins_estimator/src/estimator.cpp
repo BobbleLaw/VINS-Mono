@@ -121,38 +121,41 @@ void Estimator::processIMU(double dt, const Vector3d &linear_acceleration, const
     gyr_0 = angular_velocity;
 }
 
-void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, const std_msgs::Header &header)
+void Estimator::processImage(const std::map<int, std::vector<std::pair<int, Eigen::Matrix<double, 7, 1>>>> &image, const std_msgs::Header &header)
 {
-    ROS_DEBUG("new image coming ------------------------------------------");
+    ROS_DEBUG("New image arriving...");
     ROS_DEBUG("Adding feature points %lu", image.size());
     if (f_manager.addFeatureCheckParallax(frame_count, image, td))
         marginalization_flag = MARGIN_OLD;
     else
         marginalization_flag = MARGIN_SECOND_NEW;
 
-    ROS_DEBUG("this frame is--------------------%s", marginalization_flag ? "reject" : "accept");
-    ROS_DEBUG("%s", marginalization_flag ? "Non-keyframe" : "Keyframe");
+    ROS_DEBUG("New frame %s.", marginalization_flag ? "REJECTED" : "ACCEPTED");
+    ROS_DEBUG("New frame is %s keyframe.", marginalization_flag ? "not" : " ");
     ROS_DEBUG("Solving %d", frame_count);
     ROS_DEBUG("number of feature: %d", f_manager.getFeatureCount());
-    Headers[frame_count] = header;
 
-    ImageFrame imageframe(image, header.stamp.toSec());
+    Headers[frame_count] = header;
+    const auto header_stamp = header.stamp.toSec();
+
+    ImageFrame imageframe{image, header_stamp};
     imageframe.pre_integration = tmp_pre_integration;
-    all_image_frame.insert(make_pair(header.stamp.toSec(), imageframe));
+
+    all_image_frame.insert(make_pair(header_stamp, imageframe));
     tmp_pre_integration = new IntegrationBase{acc_0, gyr_0, Bas[frame_count], Bgs[frame_count]};
 
     if (ESTIMATE_EXTRINSIC == 2)
     {
-        ROS_INFO("calibrating extrinsic param, rotation movement is needed");
+        ROS_INFO("Calibrating extrinsic param, rotation movement is needed");
         if (frame_count != 0)
         {
             vector<pair<Vector3d, Vector3d>> corres = f_manager.getCorresponding(frame_count - 1, frame_count);
             Matrix3d calib_ric;
             if (initial_ex_rotation.CalibrationExRotation(corres, pre_integrations[frame_count]->delta_q, calib_ric))
             {
-                ROS_WARN("initial extrinsic rotation calib success");
-                ROS_WARN_STREAM("initial extrinsic rotation: " << endl
-                                                               << calib_ric);
+                ROS_WARN("Initial extrinsic rotation calibration success.");
+                ROS_WARN_STREAM("Initial calibrated extrinsic rotation: " << endl
+                                                                          << calib_ric);
                 ric[0] = calib_ric;
                 RIC[0] = calib_ric;
                 ESTIMATE_EXTRINSIC = 1;
@@ -160,18 +163,19 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
         }
     }
 
+    // Initialization starts from here
     if (solver_flag == INITIAL)
     {
         if (frame_count == WINDOW_SIZE)
         {
-            bool result = false;
-            if (ESTIMATE_EXTRINSIC != 2 && (header.stamp.toSec() - initial_timestamp) > 0.1)
+            bool init_success{false};
+            if (ESTIMATE_EXTRINSIC != 2 && (header_stamp - initial_timestamp) > 0.1)
             {
-                result = initialStructure();
-                initial_timestamp = header.stamp.toSec();
+                init_success = initialStructure();
+                initial_timestamp = header_stamp;
             }
 
-            if (result)
+            if (init_success)
             {
                 solver_flag = NON_LINEAR;
                 solveOdometry();
@@ -224,72 +228,78 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
         last_P0 = Ps[0];
     }
 }
+
 bool Estimator::initialStructure()
 {
     TicToc t_sfm;
-    // check imu observibility
+
+    // Check IMU excitation
     {
-        Vector3d sum_g;
-        for (auto frame_it = all_image_frame.begin(), frame_it++; frame_it != all_image_frame.end(); frame_it++)
-        {
-            double dt = frame_it->second.pre_integration->sum_dt;
-            Vector3d tmp_g = frame_it->second.pre_integration->delta_v / dt;
-            sum_g += tmp_g;
-        }
+        // average acceleration
+        const Eigen::Vector3d sum_g = std::accumulate(all_image_frame.begin(), all_image_frame.end(), Eigen::Vector3d::Zeros(),
+                                                      [](Eigen::Vector3d &tmp, const auto &frame)
+                                                      {
+                                                          const auto *pre_integration = frame->second.pre_integration;
+                                                          return tmp + pre_integration->delta_v / pre_integration->sum_dt;
+                                                      });
 
-        Vector3d aver_g;
-        aver_g = sum_g * 1.0 / ((int)all_image_frame.size() - 1);
-        double var = 0;
-        for (auto frame_it = all_image_frame.begin(), frame_it++; frame_it != all_image_frame.end(); frame_it++)
-        {
-            double dt = frame_it->second.pre_integration->sum_dt;
-            Vector3d tmp_g = frame_it->second.pre_integration->delta_v / dt;
-            var += (tmp_g - aver_g).transpose() * (tmp_g - aver_g);
-            // cout << "frame g " << tmp_g.transpose() << endl;
-        }
+        const Eigen::Vector3d avg_g = sum_g * 1.0 / (all_image_frame.size() - 1);
 
-        var = sqrt(var / ((int)all_image_frame.size() - 1));
-        // ROS_WARN("IMU variation %f!", var);
-        if (var < 0.25)
+        // variance acceleration
+        double var_g = std::accumulate(all_image_frame.begin(), all_image_frame.end(), 0.,
+                                       [&avg_g](double tmp, const auto &frame)
+                                       {
+                                           const auto *pre_integration = frame->second.pre_integration;
+                                           const auto tmp_g = pre_integration->delta_v / pre_integration->sum_dt;
+                                           return tmp + (tmp_g - avg_g).transpose() * (tmp_g - avg_g);
+                                       });
+        var_g = sqrt(var_g / (all_image_frame.size() - 1));
+
+        if (var_g < 0.25)
         {
-            ROS_INFO("IMU excitation not enouth!");
+            ROS_INFO("IMU excitation not enough!");
             // return false;
         }
     }
 
-    // global sfm
-    Quaterniond Q[frame_count + 1];
-    Vector3d T[frame_count + 1];
-    map<int, Vector3d> sfm_tracked_points;
-    vector<SFMFeature> sfm_f;
-    for (auto &it_per_id : f_manager.feature)
-    {
-        int imu_j = it_per_id.start_frame - 1;
-        SFMFeature tmp_feature;
-        tmp_feature.state = false;
-        tmp_feature.id = it_per_id.feature_id;
-        for (auto &it_per_frame : it_per_id.feature_per_frame)
-        {
-            imu_j++;
-            Vector3d pts_j = it_per_frame.point;
-            tmp_feature.observation.push_back(make_pair(imu_j, Eigen::Vector2d{pts_j.x(), pts_j.y()}));
-        }
-        sfm_f.push_back(tmp_feature);
-    }
-    Matrix3d relative_R;
-    Vector3d relative_T;
+    // Global SfM
+    std::vector<SFMFeature> sfm_f;
+    std::transform(f_manager.feature.begin(), f_manager.feature.end(), std::back_inserter(sfm_f),
+                   [](const auto &feat_per_id)
+                   {
+                       SFMFeature feature;
+                       feature.state = false;
+                       feature.id = feat_per_id.feature_id;
+
+                       int imu_j = feat_per_id.start_frame - 1;
+                       for (const auto &feat_per_frame : feat_per_id.feature_per_frame)
+                       {
+                           imu_j++;
+                           const Eigen::Vector3d &pts_j = feat_per_frame.point;
+                           feature.observation.emplace_back(imu_j, Eigen::Vector2d{pts_j.x(), pts_j.y()});
+                       }
+
+                       return feature;
+                   });
+
+    Eigen::Matrix3d relative_R;
+    Eigen::Vector3d relative_T;
     int l;
     if (!relativePose(relative_R, relative_T, l))
     {
-        ROS_INFO("Not enough features or parallax; Move device around");
+        ROS_INFO("Not enough features or parallax. Try to move device around.");
         return false;
     }
+
+    Eigen::Quaterniond Q[frame_count + 1];
+    Eigen::Vector3d T[frame_count + 1];
+    std::map<int, Vector3d> sfm_tracked_points;
     GlobalSFM sfm;
     if (!sfm.construct(frame_count + 1, Q, T, l,
                        relative_R, relative_T,
                        sfm_f, sfm_tracked_points))
     {
-        ROS_DEBUG("global SFM failed!");
+        ROS_DEBUG("Global SfM failed!");
         marginalization_flag = MARGIN_OLD;
         return false;
     }
@@ -376,9 +386,10 @@ bool Estimator::initialStructure()
 bool Estimator::visualInitialAlign()
 {
     TicToc t_g;
-    VectorXd x;
+
     // solve scale
-    bool result = VisualIMUAlignment(all_image_frame, Bgs, g, x);
+    Eigen::VectorXd x;
+    const bool result = VisualIMUAlignment(all_image_frame, Bgs, g, x);
     if (!result)
     {
         ROS_DEBUG("solve g failed!");
@@ -446,40 +457,40 @@ bool Estimator::visualInitialAlign()
         Rs[i] = rot_diff * Rs[i];
         Vs[i] = rot_diff * Vs[i];
     }
-    
+
     ROS_DEBUG_STREAM("g0     " << g.transpose());
     ROS_DEBUG_STREAM("my R0  " << Utility::R2ypr(Rs[0]).transpose());
 
     return true;
 }
 
-bool Estimator::relativePose(Matrix3d &relative_R, Vector3d &relative_T, int &l)
+bool Estimator::relativePose(Eigen::Matrix3d &relative_R, Eigen::Vector3d &relative_T, int &l)
 {
-    // find previous frame which contians enough correspondance and parallex with newest frame
-    for (int i = 0; i < WINDOW_SIZE; i++)
+    // find the earliest frame in the window which contains
+    // enough correspondences and parallex with respect to current frame
+    for (int i{0}; i < WINDOW_SIZE; ++i)
     {
-        vector<pair<Vector3d, Vector3d>> corres;
-        corres = f_manager.getCorresponding(i, WINDOW_SIZE);
-        if (corres.size() > 20)
+        const auto corrs = f_manager.getCorresponding(i, WINDOW_SIZE);
+        if (corrs.size() > 20)
         {
-            double sum_parallax = 0;
-            double average_parallax;
-            for (int j = 0; j < int(corres.size()); j++)
-            {
-                Vector2d pts_0(corres[j].first(0), corres[j].first(1));
-                Vector2d pts_1(corres[j].second(0), corres[j].second(1));
-                double parallax = (pts_0 - pts_1).norm();
-                sum_parallax = sum_parallax + parallax;
-            }
-            average_parallax = 1.0 * sum_parallax / int(corres.size());
-            if (average_parallax * 460 > 30 && m_estimator.solveRelativeRT(corres, relative_R, relative_T))
+            const double sum_parallax = std::accumulate(corrs.begin(), corrs.end(), 0.,
+                                                        [](double tmp, const auto &corr)
+                                                        {
+                                                            const Eigen::Vector2d pt0{corr.first(0), corr.first(1)};
+                                                            const Eigen::Vector2d pt1{corr.second(0), corr.second(1)};
+                                                            return tmp + (pt0 - pt1).norm();
+                                                        });
+
+            const double avg_parallax = 1.0 * sum_parallax / corrs.size();
+            if (avg_parallax * 460 > 30 && m_estimator.solveRelativeRT(corrs, relative_R, relative_T))
             {
                 l = i;
-                ROS_DEBUG("average_parallax %f choose l %d and newest frame to triangulate the whole structure", average_parallax * 460, l);
+                ROS_DEBUG("Choose frame %d (avg_parallax is %f) and newest frame to triangulate the whole structure", l, avg_parallax * 460);
                 return true;
             }
         }
     }
+
     return false;
 }
 

@@ -154,6 +154,7 @@ void imu_callback(const sensor_msgs::ImuConstPtr &imu_msg)
         ROS_WARN("imu message in disorder!");
         return;
     }
+
     last_imu_t = current_stamp;
 
     m_buf.lock();
@@ -220,7 +221,7 @@ void relocalization_callback(const sensor_msgs::PointCloudConstPtr &points_msg)
     m_buf.unlock();
 }
 
-// thread: visual-inertial odometry
+// thread: Visual-Inertial Odometry
 void process()
 {
     while (true)
@@ -232,7 +233,7 @@ void process()
         lk.unlock();
 
         m_estimator.lock();
-        for (auto &measurement : measurements)
+        for (const auto &measurement : measurements)
         {
             const auto &img_msg = measurement.feature;
             double dx{0.}, dy{0.}, dz{0.};
@@ -341,7 +342,9 @@ void process()
             pubTF(estimator, header);
             pubKeyframe(estimator);
             if (relo_msg)
+            {
                 pubRelocalization(estimator);
+            }
             // ROS_ERROR("end: %f, at %f", img_msg->header.stamp.toSec(), ros::Time::now().toSec());
         }
         m_estimator.unlock();
@@ -358,21 +361,21 @@ void process()
 int main(int argc, char **argv)
 {
     ros::init(argc, argv, "vins_estimator");
-    ros::NodeHandle n("~");
     ros::console::set_logger_level(ROSCONSOLE_DEFAULT_NAME, ros::console::levels::Info);
+    ros::NodeHandle n("~");
     readParameters(n);
     estimator.setParameter();
 #ifdef EIGEN_DONT_PARALLELIZE
     ROS_DEBUG("EIGEN_DONT_PARALLELIZE");
 #endif
-    ROS_WARN("waiting for image and imu...");
+    ROS_WARN("Waiting for camera and IMU messages...");
 
     registerPub(n);
 
-    ros::Subscriber sub_imu = n.subscribe(IMU_TOPIC, 2000, imu_callback, ros::TransportHints().tcpNoDelay());
-    ros::Subscriber sub_image = n.subscribe("/feature_tracker/feature", 2000, feature_callback);
-    ros::Subscriber sub_restart = n.subscribe("/feature_tracker/restart", 2000, restart_callback);
-    ros::Subscriber sub_relo_points = n.subscribe("/pose_graph/match_points", 2000, relocalization_callback);
+    auto sub_imu = n.subscribe(IMU_TOPIC, 2000, imu_callback, ros::TransportHints().tcpNoDelay());
+    auto sub_image = n.subscribe("/feature_tracker/feature", 2000, feature_callback);
+    auto sub_restart = n.subscribe("/feature_tracker/restart", 2000, restart_callback);
+    auto sub_relo_points = n.subscribe("/pose_graph/match_points", 2000, relocalization_callback);
 
     std::thread measurement_process{process};
     ros::spin();

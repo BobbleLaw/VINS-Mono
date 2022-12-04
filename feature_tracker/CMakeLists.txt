@@ -18,16 +18,16 @@ find_package(OpenCV REQUIRED)
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 find_package(Eigen3)
 include_directories(
-  ${catkin_INCLUDE_DIRS}
-  ${EIGEN3_INCLUDE_DIR}
+    ${catkin_INCLUDE_DIRS}
+    ${EIGEN3_INCLUDE_DIR}
 )
 
 catkin_package()
 
 add_executable(feature_tracker
+    src/feature_tracker.cpp
     src/feature_tracker_node.cpp
     src/parameters.cpp
-    src/feature_tracker.cpp
 )
 
 target_link_libraries(feature_tracker 

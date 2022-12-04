@@ -8,5 +8,5 @@ class MotionEstimator
 {
 public:
   using Correspondence = std::pair<Eigen::Vector3d, Eigen::Vector3d>;
-  bool solveRelativeRT(const std::vector<Correspondence> &corres, Eigen::Matrix3d &R, Eigen::Vector3d &t);
+  bool solveRelativeRT(const std::vector<Correspondence> &corres, Eigen::Matrix3d &R, Eigen::Vector3d &t) const;
 };

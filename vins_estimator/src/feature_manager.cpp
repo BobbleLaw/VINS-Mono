@@ -31,31 +31,6 @@ struct FeaturePerFrame
     bool is_used;
 };
 
-struct FeaturePerId
-{
-    FeaturePerId(int _feature_id, int _start_frame)
-        : feature_id(_feature_id), start_frame(_start_frame)
-    {
-    }
-
-    int endFrame() const
-    {
-        return start_frame + feature_per_frame.size() - 1;
-    }
-
-    const int feature_id;
-    int start_frame;
-    std::vector<FeaturePerFrame> feature_per_frame;
-
-    int used_num{0};
-    bool is_outlier;
-    bool is_margin;
-    double estimated_depth{-1.};
-    int solve_flag{0}; // 0 haven't solve yet; 1 solve succ; 2 solve fail;
-
-    Eigen::Vector3d gt_p;
-};
-
 namespace
 {
     double compensatedParallax2(const FeaturePerId &it_per_id, int frame_count)

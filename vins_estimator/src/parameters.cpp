@@ -14,7 +14,7 @@ double BIAS_ACC_THRESHOLD;
 double BIAS_GYR_THRESHOLD;
 double SOLVER_TIME;
 int NUM_ITERATIONS;
-int ESTIMATE_EXTRINSIC;
+int ESTIMATE_EXTRINSIC; // TODO: use enum
 int ESTIMATE_TD;
 int ROLLING_SHUTTER;
 std::string EX_CALIB_RESULT_PATH;
@@ -23,28 +23,33 @@ std::string IMU_TOPIC;
 double ROW, COL;
 double TD, TR;
 
-template <typename T>
-T readParam(ros::NodeHandle &n, std::string name)
+namespace
 {
-    T ans;
-    if (n.getParam(name, ans))
+    const std::string kConfigFilename{"config_file"};
+
+    template <typename T>
+    T readParam(ros::NodeHandle &n, const std::string &key)
     {
-        ROS_INFO_STREAM("Loaded " << name << ": " << ans);
+        T val;
+        if (n.getParam(key, val))
+        {
+            ROS_INFO_STREAM("Loaded " << key << ": " << val);
+        }
+        else
+        {
+            ROS_ERROR_STREAM("Failed to load " << key);
+            n.shutdown();
+        }
+
+        return val;
     }
-    else
-    {
-        ROS_ERROR_STREAM("Failed to load " << name);
-        n.shutdown();
-    }
-    return ans;
 }
 
 void readParameters(ros::NodeHandle &n)
 {
-    std::string config_file;
-    config_file = readParam<std::string>(n, "config_file");
-    cv::FileStorage fsSettings(config_file, cv::FileStorage::READ);
-    if(!fsSettings.isOpened())
+    const auto configFilename = readParam<std::string>(n, kConfigFilename);
+    cv::FileStorage fsSettings(configFilename, cv::FileStorage::READ);
+    if (!fsSettings.isOpened())
     {
         std::cerr << "ERROR: Wrong path to settings" << std::endl;
     }
@@ -77,27 +82,29 @@ void readParameters(ros::NodeHandle &n)
     ROS_INFO("ROW: %f COL: %f ", ROW, COL);
 
     ESTIMATE_EXTRINSIC = fsSettings["estimate_extrinsic"];
+    EX_CALIB_RESULT_PATH = OUTPUT_PATH + "/extrinsic_parameter.csv";
     if (ESTIMATE_EXTRINSIC == 2)
     {
-        ROS_WARN("have no prior about extrinsic param, calibrate extrinsic param");
+        ROS_WARN("No prior about extrinsic param, calibrate extrinsic param.");
         RIC.push_back(Eigen::Matrix3d::Identity());
         TIC.push_back(Eigen::Vector3d::Zero());
-        EX_CALIB_RESULT_PATH = OUTPUT_PATH + "/extrinsic_parameter.csv";
-
     }
-    else 
+    else
     {
-        if ( ESTIMATE_EXTRINSIC == 1)
+        if (ESTIMATE_EXTRINSIC == 1)
         {
-            ROS_WARN(" Optimize extrinsic param around initial guess!");
-            EX_CALIB_RESULT_PATH = OUTPUT_PATH + "/extrinsic_parameter.csv";
+            ROS_WARN("Optimize extrinsic param around initial guess!");
         }
+
         if (ESTIMATE_EXTRINSIC == 0)
-            ROS_WARN(" fix extrinsic param ");
+        {
+            ROS_WARN("Fix extrinsic param.");
+        }
 
         cv::Mat cv_R, cv_T;
         fsSettings["extrinsicRotation"] >> cv_R;
         fsSettings["extrinsicTranslation"] >> cv_T;
+
         Eigen::Matrix3d eigen_R;
         Eigen::Vector3d eigen_T;
         cv::cv2eigen(cv_R, eigen_R);
@@ -106,10 +113,11 @@ void readParameters(ros::NodeHandle &n)
         eigen_R = Q.normalized();
         RIC.push_back(eigen_R);
         TIC.push_back(eigen_T);
-        ROS_INFO_STREAM("Extrinsic_R : " << std::endl << RIC[0]);
-        ROS_INFO_STREAM("Extrinsic_T : " << std::endl << TIC[0].transpose());
-        
-    } 
+        ROS_INFO_STREAM("Extrinsic_R : " << std::endl
+                                         << RIC[0]);
+        ROS_INFO_STREAM("Extrinsic_T : " << std::endl
+                                         << TIC[0].transpose());
+    }
 
     INIT_DEPTH = 5.0;
     BIAS_ACC_THRESHOLD = 0.1;
@@ -132,6 +140,6 @@ void readParameters(ros::NodeHandle &n)
     {
         TR = 0;
     }
-    
+
     fsSettings.release();
 }
