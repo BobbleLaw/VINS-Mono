@@ -4,98 +4,42 @@ int FeatureTracker::n_id = 0;
 
 bool inBorder(const cv::Point2f &pt)
 {
-    const int BORDER_SIZE = 1;
-    int img_x = cvRound(pt.x);
-    int img_y = cvRound(pt.y);
-    return BORDER_SIZE <= img_x && img_x < COL - BORDER_SIZE && BORDER_SIZE <= img_y && img_y < ROW - BORDER_SIZE;
+    constexpr int kImgBorderSize{1};
+    const int x = cvRound(pt.x);
+    const int y = cvRound(pt.y);
+    return kImgBorderSize <= x && x < COL - kImgBorderSize && kImgBorderSize <= y && y < ROW - kImgBorderSize;
 }
 
-void reduceVector(vector<cv::Point2f> &v, vector<uchar> status)
+template <typename T>
+void reduceVector(std::vector<T> &vals, const std::vector<uchar> &keep)
 {
-    int j = 0;
-    for (int i = 0; i < int(v.size()); i++)
-        if (status[i])
-            v[j++] = v[i];
-    v.resize(j);
-}
-
-void reduceVector(vector<int> &v, vector<uchar> status)
-{
-    int j = 0;
-    for (int i = 0; i < int(v.size()); i++)
-        if (status[i])
-            v[j++] = v[i];
-    v.resize(j);
+    int size{0};
+    for (size_t i = {0}; i < int(vals.size()); i++)
+        if (keep[i])
+            vals[size++] = vals[i];
+    vals.resize(size);
 }
 
 FeatureTracker::FeatureTracker()
 {
 }
 
-void FeatureTracker::setMask()
+void FeatureTracker::readIntrinsicParameter(const std::string &filename)
 {
-    if (FISHEYE)
-        mask = fisheye_mask.clone();
-    else
-        mask = cv::Mat(ROW, COL, CV_8UC1, cv::Scalar(255));
-
-    // prefer to keep features that are tracked for long time
-    struct Feature
-    {
-        Feature(const cv::Point2f &pt, int id, int times) : pt(pt), id(id), tracked_times(times) {}
-        cv::Point2f pt;
-        int id;
-        int tracked_times;
-    };
-
-    std::vector<Feature> features;
-    features.reserve(forw_pts.size());
-    for (size_t i{0}; i < forw_pts.size(); ++i)
-    {
-        features.emplace_back(forw_pts[i], ids[i], track_cnt[i]);
-    }
-
-    sort(features.begin(), features.end(), [](const auto &a, const auto &b)
-         { return a.tracked_times > b.tracked_times; });
-
-    forw_pts.clear();
-    ids.clear();
-    track_cnt.clear();
-
-    for (const auto &feature : features)
-    {
-        if (mask.at<uchar>(feature.pt) == 255)
-        {
-            forw_pts.push_back(feature.pt);
-            ids.push_back(feature.id);
-            track_cnt.push_back(feature.tracked_times);
-            cv::circle(mask, feature.pt, MIN_DIST, 0, -1);
-        }
-    }
-}
-
-void FeatureTracker::addPoints()
-{
-    for (auto &p : n_pts)
-    {
-        forw_pts.push_back(p);
-        ids.push_back(-1);
-        track_cnt.push_back(1);
-    }
+    ROS_INFO("Reading parameters from %s", filename.c_str());
+    m_camera = CameraFactory::instance()->generateCameraFromYamlFile(filename);
 }
 
 void FeatureTracker::readImage(const cv::Mat &_img, double _cur_time)
 {
-    cv::Mat img;
-    TicToc t_r;
     cur_time = _cur_time;
-
+    cv::Mat img;
     if (EQUALIZE)
     {
         const auto clahe = cv::createCLAHE(3.0, cv::Size(8, 8));
-        TicToc t_c;
+        TicToc eqTimer;
         clahe->apply(_img, img);
-        ROS_DEBUG("CLAHE costs: %fms", t_c.toc());
+        ROS_DEBUG("CLAHE costs: %f ms", eqTimer.toc());
     }
     else
     {
@@ -118,33 +62,37 @@ void FeatureTracker::readImage(const cv::Mat &_img, double _cur_time)
         vector<float> err;
         cv::calcOpticalFlowPyrLK(cur_img, forw_img, cur_pts, forw_pts, status, err, cv::Size(21, 21), 3);
 
-        for (int i = 0; i < int(forw_pts.size()); i++)
-            if (status[i] && !inBorder(forw_pts[i]))
-                status[i] = 0;
+        for (size_t i{0}; i < forw_pts.size(); i++)
+            status[i] = status[i] && inBorder(forw_pts[i]);
+
         reduceVector(prev_pts, status);
         reduceVector(cur_pts, status);
         reduceVector(forw_pts, status);
         reduceVector(ids, status);
         reduceVector(cur_un_pts, status);
         reduceVector(track_cnt, status);
-        ROS_DEBUG("temporal optical flow costs: %fms", t_o.toc());
+
+        ROS_DEBUG("Temporal optical flow costs: %fms", t_o.toc());
     }
 
-    for (auto &n : track_cnt)
-        n++;
+    for (auto &cnt : track_cnt)
+    {
+        cnt++;
+    }
 
     if (PUB_THIS_FRAME)
     {
         rejectWithF();
-        ROS_DEBUG("set mask begins");
-        TicToc t_m;
-        setMask();
-        ROS_DEBUG("set mask costs %fms", t_m.toc());
 
-        ROS_DEBUG("detect feature begins");
+        ROS_DEBUG("Set mask begins");
+        TicToc t_m;
+        setMaskAroundFeatures();
+        ROS_DEBUG("Set mask costs %f ms", t_m.toc());
+
+        ROS_DEBUG("Detect feature begins");
         TicToc t_t;
-        int n_max_cnt = MAX_CNT - static_cast<int>(forw_pts.size());
-        if (n_max_cnt > 0)
+        const int moreFeatureCnt = MAX_CNT - static_cast<int>(forw_pts.size());
+        if (moreFeatureCnt > 0)
         {
             if (mask.empty())
                 cout << "mask is empty " << endl;
@@ -152,19 +100,21 @@ void FeatureTracker::readImage(const cv::Mat &_img, double _cur_time)
                 cout << "mask type wrong " << endl;
             if (mask.size() != forw_img.size())
                 cout << "wrong size " << endl;
-            cv::goodFeaturesToTrack(forw_img, n_pts, MAX_CNT - forw_pts.size(), 0.01, MIN_DIST, mask);
+
+            cv::goodFeaturesToTrack(forw_img, n_pts, moreFeatureCnt, 0.01, MIN_DIST, mask);
         }
         else
         {
             n_pts.clear();
         }
-        ROS_DEBUG("detect feature costs: %fms", t_t.toc());
+        ROS_DEBUG("Detect feature costs: %f ms", t_t.toc());
 
-        ROS_DEBUG("add feature begins");
+        ROS_DEBUG("Add feature begins");
         TicToc t_a;
         addPoints();
-        ROS_DEBUG("selectFeature costs: %fms", t_a.toc());
+        ROS_DEBUG("Select feature costs: %f ms", t_a.toc());
     }
+
     prev_img = cur_img;
     prev_pts = cur_pts;
     prev_un_pts = cur_un_pts;
@@ -172,41 +122,6 @@ void FeatureTracker::readImage(const cv::Mat &_img, double _cur_time)
     cur_pts = forw_pts;
     undistortedPoints();
     prev_time = cur_time;
-}
-
-void FeatureTracker::rejectWithF()
-{
-    if (forw_pts.size() >= 8)
-    {
-        ROS_DEBUG("FM ransac begins");
-        TicToc t_f;
-        vector<cv::Point2f> un_cur_pts(cur_pts.size()), un_forw_pts(forw_pts.size());
-        for (unsigned int i = 0; i < cur_pts.size(); i++)
-        {
-            Eigen::Vector3d tmp_p;
-            m_camera->liftProjective(Eigen::Vector2d(cur_pts[i].x, cur_pts[i].y), tmp_p);
-            tmp_p.x() = FOCAL_LENGTH * tmp_p.x() / tmp_p.z() + COL / 2.0;
-            tmp_p.y() = FOCAL_LENGTH * tmp_p.y() / tmp_p.z() + ROW / 2.0;
-            un_cur_pts[i] = cv::Point2f(tmp_p.x(), tmp_p.y());
-
-            m_camera->liftProjective(Eigen::Vector2d(forw_pts[i].x, forw_pts[i].y), tmp_p);
-            tmp_p.x() = FOCAL_LENGTH * tmp_p.x() / tmp_p.z() + COL / 2.0;
-            tmp_p.y() = FOCAL_LENGTH * tmp_p.y() / tmp_p.z() + ROW / 2.0;
-            un_forw_pts[i] = cv::Point2f(tmp_p.x(), tmp_p.y());
-        }
-
-        vector<uchar> status;
-        cv::findFundamentalMat(un_cur_pts, un_forw_pts, cv::FM_RANSAC, F_THRESHOLD, 0.99, status);
-        int size_a = cur_pts.size();
-        reduceVector(prev_pts, status);
-        reduceVector(cur_pts, status);
-        reduceVector(forw_pts, status);
-        reduceVector(cur_un_pts, status);
-        reduceVector(ids, status);
-        reduceVector(track_cnt, status);
-        ROS_DEBUG("FM ransac: %d -> %lu: %f", size_a, forw_pts.size(), 1.0 * forw_pts.size() / size_a);
-        ROS_DEBUG("FM ransac costs: %fms", t_f.toc());
-    }
 }
 
 bool FeatureTracker::updateID(unsigned int i)
@@ -217,14 +132,8 @@ bool FeatureTracker::updateID(unsigned int i)
             ids[i] = n_id++;
         return true;
     }
-    else
-        return false;
-}
 
-void FeatureTracker::readIntrinsicParameter(const string &calib_file)
-{
-    ROS_INFO("reading paramerter of camera %s", calib_file.c_str());
-    m_camera = CameraFactory::instance()->generateCameraFromYamlFile(calib_file);
+    return false;
 }
 
 void FeatureTracker::showUndistortion(const string &name)
@@ -241,6 +150,7 @@ void FeatureTracker::showUndistortion(const string &name)
             undistortedp.push_back(Eigen::Vector2d(b.x() / b.z(), b.y() / b.z()));
             // printf("%f,%f->%f,%f,%f\n)\n", a.x(), a.y(), b.x(), b.y(), b.z());
         }
+
     for (int i = 0; i < int(undistortedp.size()); i++)
     {
         cv::Mat pp(3, 1, CV_32FC1);
@@ -263,24 +173,115 @@ void FeatureTracker::showUndistortion(const string &name)
     cv::waitKey(0);
 }
 
+void FeatureTracker::rejectWithF()
+{
+    if (forw_pts.size() >= 8)
+    {
+        ROS_DEBUG("FM ransac begins");
+        TicToc t_f;
+
+        std::vector<cv::Point2f> un_cur_pts(cur_pts.size());
+        std::vector<cv::Point2f> un_forw_pts(forw_pts.size());
+        for (size_t i{0}; i < cur_pts.size(); i++)
+        {
+            auto toNormalizedCoord = [&m_camera](const cv::Point2f &pt) -> cv::Point2f
+            {
+                Eigen::Vector3d pt3D;
+                m_camera->liftProjective({pt.x, pt.y}, pt3D);
+                pt3D.x() = FOCAL_LENGTH * pt3D.x() / pt3D.z() + COL / 2.0;
+                pt3D.y() = FOCAL_LENGTH * pt3D.y() / pt3D.z() + ROW / 2.0;
+                return {pt3D.x(), pt3D.y()};
+            };
+
+            un_cur_pts[i] = toNormalizedCoord(cur_pts[i]);
+            un_forw_pts[i] = toNormalizedCoord(forw_pts[i]);
+        }
+
+        vector<uchar> status;
+        cv::findFundamentalMat(un_cur_pts, un_forw_pts, cv::FM_RANSAC, F_THRESHOLD, 0.99, status);
+        int size_a = cur_pts.size();
+        reduceVector(prev_pts, status);
+        reduceVector(cur_pts, status);
+        reduceVector(forw_pts, status);
+        reduceVector(cur_un_pts, status);
+        reduceVector(ids, status);
+        reduceVector(track_cnt, status);
+
+        ROS_DEBUG("FM ransac: %d -> %lu: %f", size_a, forw_pts.size(), 1.0 * forw_pts.size() / size_a);
+        ROS_DEBUG("FM ransac costs: %fms", t_f.toc());
+    }
+}
+
+void FeatureTracker::setMaskAroundFeatures()
+{
+    if (FISHEYE)
+        mask = fisheye_mask.clone();
+    else
+        mask = cv::Mat(ROW, COL, CV_8UC1, cv::Scalar(255));
+
+    struct Feature
+    {
+        Feature(const cv::Point2f &pt, int id, int times) : pt(pt), id(id), trackedTimes(times) {}
+        cv::Point2f pt;
+        int id;
+        int trackedTimes;
+    };
+
+    std::vector<Feature> features;
+    features.reserve(forw_pts.size());
+    for (size_t i{0}; i < forw_pts.size(); ++i)
+    {
+        features.emplace_back(forw_pts[i], ids[i], track_cnt[i]);
+    }
+
+    // prefer to keep features that are tracked for long time
+    sort(features.begin(), features.end(), [](const auto &a, const auto &b)
+         { return a.trackedTimes > b.trackedTimes; });
+
+    forw_pts.clear();
+    ids.clear();
+    track_cnt.clear();
+
+    for (const auto &feature : features)
+    {
+        if (mask.at<uchar>(feature.pt) == 255)
+        {
+            forw_pts.push_back(feature.pt);
+            ids.push_back(feature.id);
+            track_cnt.push_back(feature.trackedTimes);
+            cv::circle(mask, feature.pt, MIN_DIST, 0, -1);
+        }
+    }
+}
+
+void FeatureTracker::addPoints()
+{
+    for (const auto &p : n_pts)
+    {
+        forw_pts.push_back(p);
+        ids.push_back(-1);
+        track_cnt.push_back(1);
+    }
+}
+
 void FeatureTracker::undistortedPoints()
 {
     cur_un_pts.clear();
     cur_un_pts_map.clear();
-    // cv::undistortPoints(cur_pts, un_pts, K, cv::Mat());
-    for (unsigned int i = 0; i < cur_pts.size(); i++)
+
+    for (size_t i{0}; i < cur_pts.size(); i++)
     {
-        Eigen::Vector2d a(cur_pts[i].x, cur_pts[i].y);
-        Eigen::Vector3d b;
-        m_camera->liftProjective(a, b);
-        cur_un_pts.push_back(cv::Point2f(b.x() / b.z(), b.y() / b.z()));
-        cur_un_pts_map.insert(make_pair(ids[i], cv::Point2f(b.x() / b.z(), b.y() / b.z())));
-        // printf("cur pts id %d %f %f", ids[i], cur_un_pts[i].x, cur_un_pts[i].y);
+        Eigen::Vector3d pt3D;
+        m_camera->liftProjective({cur_pts[i].x, cur_pts[i].y}, pt3D);
+        const cv::Point2f pt2D{pt3D.x() / pt3D.z(), pt3D.y() / pt3D.z()};
+        cur_un_pts.push_back(pt2D);
+        cur_un_pts_map.insert({ids[i], pt2D});
     }
+
     // caculate points velocity
     if (!prev_un_pts_map.empty())
     {
-        double dt = cur_time - prev_time;
+        const double dt = cur_time - prev_time;
         pts_velocity.clear();
         for (size_t i{0}; i < cur_un_pts.size(); i++)
         {
@@ -289,18 +290,16 @@ void FeatureTracker::undistortedPoints()
                 const auto found = prev_un_pts_map.find(ids[i]);
                 if (found != prev_un_pts_map.end())
                 {
-                    double v_x = (cur_un_pts[i].x - it->second.x) / dt;
-                    double v_y = (cur_un_pts[i].y - it->second.y) / dt;
-                    pts_velocity.push_back(cv::Point2f(v_x, v_y));
+                    pts_velocity.push_back((cur_un_pts[i] - it->second) / dt);
                 }
                 else
                 {
-                    pts_velocity.push_back(cv::Point2f(0, 0));
+                    pts_velocity.push_back({0., 0.});
                 }
             }
             else
             {
-                pts_velocity.push_back(cv::Point2f(0, 0));
+                pts_velocity.push_back({0., 0.});
             }
         }
     }
@@ -308,8 +307,9 @@ void FeatureTracker::undistortedPoints()
     {
         for (size_t i{0}; i < cur_pts.size(); i++)
         {
-            pts_velocity.push_back(cv::Point2f(0, 0));
+            pts_velocity.push_back({0., 0.});
         }
     }
+
     prev_un_pts_map = cur_un_pts_map;
 }

@@ -69,7 +69,7 @@ std::string POSE_GRAPH_SAVE_PATH;
 std::string VINS_RESULT_PATH;
 CameraPoseVisualization cameraposevisual(1, 0, 0, 1);
 Eigen::Vector3d last_t(-100, -100, -100);
-double last_image_time = -1;
+double lastImgTime = -1;
 
 void new_sequence()
 {
@@ -106,14 +106,14 @@ void image_callback(const sensor_msgs::ImageConstPtr &image_msg)
     // printf(" image time %f \n", image_msg->header.stamp.toSec());
 
     // detect unstable camera stream
-    if (last_image_time == -1)
-        last_image_time = image_msg->header.stamp.toSec();
-    else if (image_msg->header.stamp.toSec() - last_image_time > 1.0 || image_msg->header.stamp.toSec() < last_image_time)
+    if (lastImgTime == -1)
+        lastImgTime = image_msg->header.stamp.toSec();
+    else if (image_msg->header.stamp.toSec() - lastImgTime > 1.0 || image_msg->header.stamp.toSec() < lastImgTime)
     {
         ROS_WARN("image discontinue! detect a new sequence!");
         new_sequence();
     }
-    last_image_time = image_msg->header.stamp.toSec();
+    lastImgTime = image_msg->header.stamp.toSec();
 }
 
 void point_callback(const sensor_msgs::PointCloudConstPtr &point_msg)
